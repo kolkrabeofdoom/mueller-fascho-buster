@@ -34,7 +34,7 @@ interface ScanHistoryItem {
   name: string;
   brand: string;
   imageUrl: string | null;
-  status: 'hit' | 'free' | 'notfound';
+  status: 'hit' | 'hit-nestle' | 'free' | 'notfound';
   matchReason?: string;
   timestamp: string;
 }
@@ -49,6 +49,23 @@ export default function App() {
   const [vetResult, setVetResult] = useState<{ match: UTMPlant | null; checked: boolean }>({ match: null, checked: false });
   const [activeResult, setActiveResult] = useState<ScanHistoryItem | null>(null);
   const [scanHistory, setScanHistory] = useState<ScanHistoryItem[]>([]);
+  const [activeFilters, setActiveFilters] = useState<{ muller: boolean; nestle: boolean }>(() => {
+    const saved = localStorage.getItem('mfb_filters');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return { muller: true, nestle: true };
+  });
+
+  const handleFilterToggle = (key: 'muller' | 'nestle') => {
+    setActiveFilters(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem('mfb_filters', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerId = "camera-reader";
@@ -178,44 +195,58 @@ export default function App() {
         
         // Match Engine: Step 1: Check Brands
         const matchedBrand = checkUTMBrand(brand);
+        let isHit = false;
+        let corporationHit: 'muller' | 'nestle' | null = null;
+        let reason = "";
+
+        if (matchedBrand) {
+          if (matchedBrand.corporation === 'muller' && activeFilters.muller) {
+            isHit = true;
+            corporationHit = 'muller';
+            reason = `Die Marke '${matchedBrand.name}' gehört zum Müller-Konzern.`;
+          } else if (matchedBrand.corporation === 'nestle' && activeFilters.nestle) {
+            isHit = true;
+            corporationHit = 'nestle';
+            reason = `Die Marke '${matchedBrand.name}' gehört zum Nestlé-Konzern.`;
+          }
+        }
         
         // Match Engine: Step 2: Check Packaging codes
         let matchedPlant: UTMPlant | null = null;
         let matchedPlantSource = "";
         
-        // Check emb_codes array
-        if (product.emb_codes) {
-          const codes = product.emb_codes.split(',').map((c: string) => c.trim());
-          for (const code of codes) {
-            const p = checkUTMPlant(code);
-            if (p) {
-              matchedPlant = p;
-              matchedPlantSource = code;
-              break;
+        if (!isHit) {
+          // Check emb_codes array
+          if (product.emb_codes) {
+            const codes = product.emb_codes.split(',').map((c: string) => c.trim());
+            for (const code of codes) {
+              const p = checkUTMPlant(code);
+              if (p && p.corporation === 'muller' && activeFilters.muller) {
+                matchedPlant = p;
+                matchedPlantSource = code;
+                break;
+              }
             }
           }
-        }
-        
-        // Check emb_codes_tags array
-        if (!matchedPlant && product.emb_codes_tags) {
-          const tags = Array.isArray(product.emb_codes_tags) ? product.emb_codes_tags : [product.emb_codes_tags];
-          for (const tag of tags) {
-            const p = checkUTMPlant(tag);
-            if (p) {
-              matchedPlant = p;
-              matchedPlantSource = tag;
-              break;
+          
+          // Check emb_codes_tags array
+          if (!matchedPlant && product.emb_codes_tags) {
+            const tags = Array.isArray(product.emb_codes_tags) ? product.emb_codes_tags : [product.emb_codes_tags];
+            for (const tag of tags) {
+              const p = checkUTMPlant(tag);
+              if (p && p.corporation === 'muller' && activeFilters.muller) {
+                matchedPlant = p;
+                matchedPlantSource = tag;
+                break;
+              }
             }
           }
-        }
 
-        // Determine hit
-        const isHit = !!matchedBrand || !!matchedPlant;
-        let reason = "";
-        if (matchedBrand) {
-          reason = `Die Marke '${matchedBrand.name}' gehört zum Müller-Konzern.`;
-        } else if (matchedPlant) {
-          reason = `Wurde hergestellt im Müller-Werk in ${matchedPlant.city} (${matchedPlant.name}, Betriebsnummer ${matchedPlant.code}, abgeglichen über Code: ${matchedPlantSource}).`;
+          if (matchedPlant) {
+            isHit = true;
+            corporationHit = 'muller';
+            reason = `Wurde hergestellt im Müller-Werk in ${matchedPlant.city} (${matchedPlant.name}, Betriebsnummer ${matchedPlant.code}, abgeglichen über Code: ${matchedPlantSource}).`;
+          }
         }
 
         historyItem = {
@@ -224,7 +255,7 @@ export default function App() {
           name: productName,
           brand,
           imageUrl,
-          status: isHit ? 'hit' : 'free',
+          status: isHit ? (corporationHit === 'nestle' ? 'hit-nestle' : 'hit') : 'free',
           matchReason: reason,
           timestamp
         };
@@ -282,7 +313,7 @@ export default function App() {
 
   // Recommendations generator depending on brands/categories
   const getAlternativesForProduct = (result: ScanHistoryItem): Alternative[] => {
-    if (result.status !== 'hit') return [];
+    if (result.status !== 'hit' && result.status !== 'hit-nestle') return [];
     
     const brandLower = result.brand.toLowerCase();
     const nameLower = result.name.toLowerCase();
@@ -301,6 +332,14 @@ export default function App() {
       matchedCategory = 'dessert';
     } else if (nameLower.includes('sahne') || nameLower.includes('butter') || nameLower.includes('schmand') || nameLower.includes('rahm')) {
       matchedCategory = 'butter';
+    } else if (brandLower.includes('wagner') || nameLower.includes('pizza') || nameLower.includes('flammkuchen') || brandLower.includes('buitoni')) {
+      matchedCategory = 'pizza';
+    } else if (brandLower.includes('vittel') || brandLower.includes('pellegrino') || brandLower.includes('panna') || brandLower.includes('perrier') || nameLower.includes('wasser') || nameLower.includes('mineralwasser') || nameLower.includes('limonade')) {
+      matchedCategory = 'wasser';
+    } else if (brandLower.includes('kitkat') || brandLower.includes('smarties') || brandLower.includes('lion') || brandLower.includes('aftereight') || brandLower.includes('crossies') || brandLower.includes('choclait') || nameLower.includes('schokolade') || nameLower.includes('kakao') || nameLower.includes('nesquik') || nameLower.includes('riegel')) {
+      matchedCategory = 'schokolade';
+    } else if (brandLower.includes('maggi') || brandLower.includes('thomy') || nameLower.includes('brühe') || nameLower.includes('gewürz') || nameLower.includes('bouillon') || nameLower.includes('senf') || nameLower.includes('mayo')) {
+      matchedCategory = 'saucen';
     }
 
     return independentAlternatives.filter(alt => alt.recommendedFor.includes(matchedCategory));
@@ -357,9 +396,35 @@ export default function App() {
                   Nahrungsmittel scannen
                 </h2>
                 
-                <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.95rem', lineHeight: 1.5 }}>
-                  Scanne den Barcode (EAN) eines Milchprodukts oder Feinkost-Artikels, um sofort zu prüfen, ob es zum intransparenten Firmengeflecht von <strong>Theo Müller</strong> gehört.
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem', fontSize: '0.95rem', lineHeight: 1.5 }}>
+                  Scanne den Barcode (EAN) oder tippe ihn ein, um sofort zu prüfen, ob das Produkt zum Konzernumfeld der ausgewählten Konzerne gehört.
                 </p>
+
+                {/* Interactive Boycott-Filter Toggles */}
+                <div className="filter-selector">
+                  <div className="filter-selector-label">
+                    <Building2 size={15} />
+                    <span>Aktive Boykott-Filter:</span>
+                  </div>
+                  <div className="filter-toggles">
+                    <button 
+                      type="button"
+                      className={`filter-toggle-btn muller ${activeFilters.muller ? 'active' : ''}`}
+                      onClick={() => handleFilterToggle('muller')}
+                    >
+                      <span className="dot" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-danger)' }}></span>
+                      Müller-Gruppe ({activeFilters.muller ? 'Aktiv' : 'Inaktiv'})
+                    </button>
+                    <button 
+                      type="button"
+                      className={`filter-toggle-btn nestle ${activeFilters.nestle ? 'active' : ''}`}
+                      onClick={() => handleFilterToggle('nestle')}
+                    >
+                      <span className="dot" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-nestle)' }}></span>
+                      Nestlé-Konzern ({activeFilters.nestle ? 'Aktiv' : 'Inaktiv'})
+                    </button>
+                  </div>
+                </div>
 
                 {/* Camera Viewport Container */}
                 <div style={{ marginBottom: '1.5rem' }}>
@@ -530,7 +595,7 @@ export default function App() {
                       
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <span className={`indicator-pill ${item.status}`}>
-                          {item.status === 'hit' ? 'Müller' : item.status === 'free' ? 'Frei' : 'Unbekannt'}
+                          {item.status === 'hit' ? 'Müller' : item.status === 'hit-nestle' ? 'Nestlé' : item.status === 'free' ? 'Frei' : 'Unbekannt'}
                         </span>
                         <button className="delete-btn" onClick={(e) => deleteHistoryItem(item.id, e)}>
                           <X size={14} />
@@ -550,19 +615,41 @@ export default function App() {
             <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <h2 className="section-title">
                 <Building2 size={22} className="text-cyan" />
-                Das Theo-Müller-Imperium
+                Konzern-Strukturen & Marken
               </h2>
               
               <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, fontSize: '0.95rem' }}>
-                Viele Marken der <strong>Unternehmensgruppe Theo Müller</strong> verbergen sich geschickt hinter ländlicher Idylle, historischen Logos oder regionaler Herkunft. Hier ist eine Übersicht über die bekanntesten konzerneigenen Marken:
+                Viele Marken von <strong>Theo Müller</strong> und <strong>Nestlé</strong> verbergen sich geschickt hinter ländlicher Idylle, historischen Logos oder regionaler Herkunft. Hier ist eine Übersicht über die boykottierten Konzerne:
               </p>
 
+              <h3 style={{ fontSize: '1.15rem', color: '#ff4433', borderBottom: '1px solid rgba(255, 68, 51, 0.2)', paddingBottom: '0.5rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-danger)' }}></span>
+                Unternehmensgruppe Theo Müller (UTM)
+              </h3>
               <div className="brand-showcase">
-                {Object.values(utmBrands).map((brand) => (
+                {Object.values(utmBrands).filter(brand => brand.corporation === 'muller').map((brand) => (
                   <div key={brand.id} className="brand-card">
                     <div className="brand-card-header">
                       <div className="brand-card-name">{brand.name}</div>
                       <span className="indicator-pill hit" style={{ fontSize: '0.65rem' }}>Müller</span>
+                    </div>
+                    <div className="brand-card-category">{brand.category}</div>
+                    <div className="brand-card-desc">{brand.description}</div>
+                    <div className="brand-card-relation">{brand.relation}</div>
+                  </div>
+                ))}
+              </div>
+
+              <h3 style={{ fontSize: '1.15rem', color: 'var(--color-nestle)', borderBottom: '1px solid rgba(0, 210, 255, 0.2)', paddingBottom: '0.5rem', marginTop: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-nestle)' }}></span>
+                Nestlé-Konzern
+              </h3>
+              <div className="brand-showcase">
+                {Object.values(utmBrands).filter(brand => brand.corporation === 'nestle').map((brand) => (
+                  <div key={brand.id} className="brand-card nestle-brand">
+                    <div className="brand-card-header">
+                      <div className="brand-card-name">{brand.name}</div>
+                      <span className="indicator-pill hit-nestle" style={{ fontSize: '0.65rem' }}>Nestlé</span>
                     </div>
                     <div className="brand-card-category">{brand.category}</div>
                     <div className="brand-card-desc">{brand.description}</div>
@@ -602,20 +689,39 @@ export default function App() {
           <div className="glass-card" style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <h2 className="section-title">
               <BookOpen size={22} className="text-cyan" />
-              Hintergründe des Boykotts: Warum Müller-Produkte meiden?
+              Hintergründe des Boykotts: Warum Müller & Nestlé meiden?
             </h2>
             
             <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, fontSize: '1rem' }}>
-              Die Kritik an Theo Müller und der Unternehmensgruppe Theo Müller hat sich über Jahrzehnte aufgebaut. Sie speist sich aus politischen Kontroversen, Steuervermeidungstaktiken und marktbeherrschendem Druck auf die Landwirtschaft.
+              Die Kritik an Theo Müller und dem Nestlé-Konzern hat sich über Jahrzehnte aufgebaut. Sie speist sich aus politischen Kontroversen, Steuervermeidungstaktiken, Ausbeutung von Ressourcen und marktbeherrschendem Druck auf globale Systeme.
             </p>
 
             <div className="controversy-list">
-              {boycottReasons.map((reason, idx) => (
+              <h3 style={{ fontSize: '1.25rem', color: '#ff4433', borderBottom: '1px solid rgba(255, 68, 51, 0.2)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-danger)' }}></span>
+                Unternehmensgruppe Theo Müller Kontroversen
+              </h3>
+              {boycottReasons.filter(r => r.corporation === 'muller').map((reason, idx) => (
                 <div key={idx} className="controversy-item">
-                  <h3 className="controversy-title">
+                  <h4 className="controversy-title">
                     <AlertTriangle size={18} className="text-danger" />
                     {reason.title}
-                  </h3>
+                  </h4>
+                  <div className="controversy-summary">{reason.description}</div>
+                  <p className="controversy-details">{reason.details}</p>
+                </div>
+              ))}
+
+              <h3 style={{ fontSize: '1.25rem', color: 'var(--color-nestle)', borderBottom: '1px solid rgba(0, 210, 255, 0.2)', paddingBottom: '0.5rem', marginTop: '2.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-nestle)' }}></span>
+                Nestlé-Konzern Kontroversen
+              </h3>
+              {boycottReasons.filter(r => r.corporation === 'nestle').map((reason, idx) => (
+                <div key={idx} className="controversy-item nestle-controversy">
+                  <h4 className="controversy-title">
+                    <AlertTriangle size={18} style={{ color: 'var(--color-nestle)' }} />
+                    {reason.title}
+                  </h4>
                   <div className="controversy-summary">{reason.description}</div>
                   <p className="controversy-details">{reason.details}</p>
                 </div>
@@ -623,8 +729,8 @@ export default function App() {
             </div>
 
             <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '1.5rem', marginTop: '1rem' }}>
-              <h4 style={{ marginBottom: '0.75rem', fontSize: '1.1rem' }}>Weiterführende, unabhängige Recherchen:</h4>
-              <ul style={{ paddingLeft: '1.25rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
+              <h4 style={{ marginBottom: '0.75rem', fontSize: '1.1rem' }}>Weiterführende, unabhängige Recherchen & Berichte:</h4>
+              <ul style={{ paddingLeft: '1.25rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem' }}>
                 <li>
                   <a href="https://www.tagesschau.de/inland/innenpolitik/afd-weidel-mueller-milch-100.html" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                     Tagesschau: Theo Müller bestätigt Kontakte zu AfD-Spitze <ExternalLink size={12} />
@@ -632,7 +738,17 @@ export default function App() {
                 </li>
                 <li>
                   <a href="https://de.wikipedia.org/wiki/Unternehmensgruppe_Theo_M%C3%BCller#Kritik" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    Wikipedia: Detaillierte Kritik an der Unternehmensgruppe <ExternalLink size={12} />
+                    Wikipedia: Detaillierte Kritik an der Müller-Unternehmensgruppe <ExternalLink size={12} />
+                  </a>
+                </li>
+                <li>
+                  <a href="https://de.wikipedia.org/wiki/Nestl%C3%A9#Kritik_und_Kontroversen" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    Wikipedia: Nestlé Kritik und weltweite Kontroversen <ExternalLink size={12} />
+                  </a>
+                </li>
+                <li>
+                  <a href="https://www.spiegel.de/thema/nestle/" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    Der Spiegel: Berichte & Recherchen zum Nestlé-Konzern <ExternalLink size={12} />
                   </a>
                 </li>
               </ul>
@@ -656,15 +772,15 @@ export default function App() {
               </button>
 
               <div className="result-icon-glow">
-                {activeResult.status === 'hit' ? <AlertTriangle size={28} /> : activeResult.status === 'free' ? <CheckCircle size={28} /> : <HelpCircle size={28} />}
+                {activeResult.status === 'hit' || activeResult.status === 'hit-nestle' ? <AlertTriangle size={28} /> : activeResult.status === 'free' ? <CheckCircle size={28} /> : <HelpCircle size={28} />}
               </div>
 
               <div className="result-title">
-                {activeResult.status === 'hit' ? 'Achtung: Müller-Gruppe!' : activeResult.status === 'free' ? 'Super: Müller-Frei!' : 'Unbekanntes Produkt'}
+                {activeResult.status === 'hit' ? 'Achtung: Müller-Gruppe!' : activeResult.status === 'hit-nestle' ? 'Achtung: Nestlé-Konzern!' : activeResult.status === 'free' ? 'Super: Müller/Nestlé-Frei!' : 'Unbekanntes Produkt'}
               </div>
 
               <div className="result-subtitle">
-                {activeResult.status === 'hit' ? 'Dieses Produkt steht in Verbindung zu Theo Müller.' : activeResult.status === 'free' ? 'Keine Verbindung zu Theo Müller gefunden.' : 'Prüfung unvollständig.'}
+                {activeResult.status === 'hit' ? 'Dieses Produkt steht in Verbindung zu Theo Müller.' : activeResult.status === 'hit-nestle' ? 'Dieses Produkt gehört zum Nestlé-Konzern.' : activeResult.status === 'free' ? 'Keine Verbindung zu Müller oder Nestlé gefunden.' : 'Prüfung unvollständig.'}
               </div>
             </div>
 
@@ -688,8 +804,8 @@ export default function App() {
               </div>
 
               {/* Match Details / Explanation */}
-              {activeResult.status === 'hit' && (
-                <div className="trigger-match-box">
+              {(activeResult.status === 'hit' || activeResult.status === 'hit-nestle') && (
+                <div className={`trigger-match-box ${activeResult.status}`}>
                   <div className="trigger-title">
                     <AlertTriangle size={16} />
                     Treffer-Begründung
@@ -707,7 +823,7 @@ export default function App() {
                     Unbedenklich
                   </div>
                   <p className="safe-text">
-                    Nach unseren Datenbank-Einträgen gehört weder die Marke noch das herstellende Werk zum Konzernumfeld von Theo Müller. Du kannst dieses Produkt beruhigt einkaufen!
+                    Nach unseren Datenbank-Einträgen gehört weder die Marke noch das herstellende Werk zum Konzernumfeld der aktiven Boykott-Filter (Müller / Nestlé). Du kannst dieses Produkt beruhigt einkaufen!
                   </p>
                 </div>
               )}
@@ -731,11 +847,11 @@ export default function App() {
               )}
 
               {/* Alternatives grid (for hits only) */}
-              {activeResult.status === 'hit' && (
+              {(activeResult.status === 'hit' || activeResult.status === 'hit-nestle') && (
                 <div className="alternatives-container">
                   <h4 className="alt-title">
                     <Sparkles size={16} className="text-cyan" />
-                    Empfohlene Müller-freie Alternativen:
+                    Empfohlene boykottfreie Alternativen:
                   </h4>
                   <div className="alt-grid">
                     {getAlternativesForProduct(activeResult).map((alt, idx) => (

@@ -773,6 +773,12 @@
   box-shadow: 0 5px 15px rgba(255, 68, 51, 0.08);
 }
 
+.brand-card.nestle-brand:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-nestle-glow);
+  box-shadow: 0 5px 15px rgba(0, 210, 255, 0.08);
+}
+
 .brand-card-header {
   display: flex;
   justify-content: space-between;
@@ -931,3 +937,93 @@
   color: var(--color-danger);
   font-weight: 600;
 }
+
+/* Nestlé Specific Style Extensions */
+:root {
+  --color-nestle: #00d2ff;
+  --color-nestle-bg: rgba(0, 210, 255, 0.08);
+  --color-nestle-glow: rgba(0, 210, 255, 0.2);
+}
+
+.indicator-pill.hit-nestle {
+  background-color: var(--color-nestle-bg);
+  color: var(--color-nestle);
+  border: 1px solid var(--color-nestle-glow);
+}
+
+.result-header.hit-nestle {
+  background: linear-gradient(180deg, var(--color-nestle-bg) 0%, rgba(12, 12, 12, 0) 100%), var(--bg-card);
+  border-bottom: 2px solid var(--color-nestle);
+}
+
+.result-header.hit-nestle .result-icon-glow {
+  background-color: var(--color-nestle-glow);
+  color: var(--color-nestle);
+  box-shadow: 0 0 25px var(--color-nestle);
+}
+
+.controversy-item.nestle-controversy {
+  border-left-color: var(--color-nestle);
+}
+
+/* Boycott Filter Selector Toggles */
+.filter-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-subtle);
+}
+
+.filter-selector-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.filter-toggles {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filter-toggle-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.filter-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.filter-toggle-btn.active.muller {
+  border-color: var(--color-danger);
+  color: #fff;
+  background-color: rgba(255, 68, 51, 0.12);
+  box-shadow: 0 0 12px rgba(255, 68, 51, 0.25);
+}
+
+.filter-toggle-btn.active.nestle {
+  border-color: var(--color-nestle);
+  color: #fff;
+  background-color: rgba(0, 210, 255, 0.12);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.25);
+}
+
