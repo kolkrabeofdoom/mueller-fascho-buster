@@ -1,6 +1,6 @@
-# 🥛 Müller-Fascho-Buster — Konsum-Boykott-Scanner
+# 🥛 Boykott-Buster — Konsum-Boykott-Scanner
 
-**Müller-Fascho-Buster** ist eine datenschutzfreundliche, clientseitige Web-App im edlen Glassmorphic-Dark-Mode, mit der Verbraucher im Supermarkt sofort prüfen können, ob ein Produkt in Verbindung zur **Unternehmensgruppe Theo Müller** oder dem **Nestlé-Konzern** steht. 
+**Boykott-Buster** ist eine datenschutzfreundliche, clientseitige Web-App im edlen Glassmorphic-Dark-Mode, mit der Verbraucher im Supermarkt sofort prüfen können, ob ein Produkt in Verbindung zur **Unternehmensgruppe Theo Müller** oder dem **Nestlé-Konzern** steht. 
 
 Mit nur einem Scan entlarven Sie Marken wie **Müllermilch**, **Weihenstephan**, **Landliebe**, **Wagner Pizza**, **Maggi**, **Thomy**, **San Pellegrino** sowie verdeckte Eigenmarken! Über interaktive Boykott-Filter lässt sich präzise steuern, welche Konzerne im Scan-Alarm berücksichtigt werden.
 

@@ -351,7 +351,7 @@ export default function App() {
       <header className="app-header">
         <div className="brand-title">
           <h1>
-            Müller-Fascho-Buster
+            Boykott-Buster
             <span className="logo-badge">Beta</span>
           </h1>
         </div>
@@ -884,7 +884,7 @@ export default function App() {
       {/* FOOTER */}
       <footer className="app-footer">
         <p>
-          Müller-Fascho-Buster — Für einen bewussten, demokratischen Konsum.
+          Boykott-Buster — Für einen bewussten, demokratischen Konsum.
         </p>
         <p style={{ fontSize: '0.75rem' }}>
           Alle Daten stammen aus der kollaborativen Datenbank <a href="https://de.openfoodfacts.org" target="_blank" rel="noopener noreferrer">OpenFoodFacts</a> sowie öffentlich zugänglichen Betriebsinformationen.
