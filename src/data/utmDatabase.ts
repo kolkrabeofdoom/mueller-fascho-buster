@@ -531,7 +531,25 @@ export const independentAlternatives: Alternative[] = [
   {
     name: "Taifun Tofu",
     type: "organic",
-    description: "Der unabhängige deutsche Bio-Tofu-Pionier aus Freiburg. Um Übernahmen durch Großkonzerne dauerhaft auszuschließen, ist das Unternehmen in einer unverkäuflichen Stiftung organisiert. Verwendet ausschließlich europäischen Bio-Soja aus regionalem Vertragsanbau.",
+    description: "Der unabhängige deutsche Bio-Tofu-Pionier aus Freiburg. In einer Stiftung organisiert, um Übernahmen durch Großkonzerne auszuschließen. 100% europäischer Bio-Soja.",
+    recommendedFor: ["tofu", "vegan", "pflanzlich"]
+  },
+  {
+    name: "Viana / Tofutown",
+    type: "organic",
+    description: "Unabhängiger deutscher Bio-Pionier aus der Vulkaneifel. Stellt seit 1988 innovative Veggie-Snacks, Steaks und Bio-Tofu aus rein europäischen Rohstoffen her.",
+    recommendedFor: ["tofu", "vegan", "pflanzlich"]
+  },
+  {
+    name: "Treiber Tofu",
+    type: "regional",
+    description: "Traditionelle, inhabergeführte Bio-Tofurei aus Berlin. Stellt handwerklichen Tofu von Weltklasse-Qualität nach original japanischem Verfahren her.",
+    recommendedFor: ["tofu", "vegan", "pflanzlich"]
+  },
+  {
+    name: "Alberts (Lupinen- & Bio-Tofu)",
+    type: "organic",
+    description: "Unabhängiger Bio-Hersteller (Landhof Alberts) spezialisiert auf Soja-Tofu und zukunftsweisende Lupinen-Produkte aus rein deutschem Bio-Anbau.",
     recommendedFor: ["tofu", "vegan", "pflanzlich"]
   },
   {
@@ -636,17 +654,25 @@ export const normalizeString = (str: string): string => {
 
 // Check if a brand name matches UTM database
 export const checkUTMBrand = (brandName: string): UTMBrand | null => {
-  const normalizedInput = normalizeString(brandName);
+  if (!brandName) return null;
   
-  // Direct check
-  if (utmBrands[normalizedInput]) {
-    return utmBrands[normalizedInput];
-  }
+  // Split by comma in case of multiple brands (e.g. "Nestlé,Original Wagner")
+  const brandParts = brandName.split(',').map(b => b.trim());
   
-  // Partial check (e.g. "Molkerei Alois Müller" contains "muller")
-  for (const key of Object.keys(utmBrands)) {
-    if (normalizedInput.includes(key) || key.includes(normalizedInput)) {
-      return utmBrands[key];
+  for (const part of brandParts) {
+    const normalizedInput = normalizeString(part);
+    if (!normalizedInput) continue;
+    
+    // Direct check
+    if (utmBrands[normalizedInput]) {
+      return utmBrands[normalizedInput];
+    }
+    
+    // Partial check (e.g. "Molkerei Alois Müller" contains "muller")
+    for (const key of Object.keys(utmBrands)) {
+      if (normalizedInput.includes(key) || key.includes(normalizedInput)) {
+        return utmBrands[key];
+      }
     }
   }
   

@@ -37,6 +37,9 @@ interface ScanHistoryItem {
   status: 'hit' | 'hit-nestle' | 'free' | 'notfound';
   matchReason?: string;
   timestamp: string;
+  brandsTags?: string[];
+  embCodes?: string;
+  embCodesTags?: string[] | string;
 }
 
 export default function App() {
@@ -194,7 +197,20 @@ export default function App() {
         const imageUrl = product.image_front_url || product.image_url || product.image_thumb_url || null;
         
         // Match Engine: Step 1: Check Brands
-        const matchedBrand = checkUTMBrand(brand);
+        let matchedBrand = checkUTMBrand(brand);
+        
+        // Robust Fallback: Check brands_tags if present
+        if (!matchedBrand && product.brands_tags) {
+          const tags = Array.isArray(product.brands_tags) ? product.brands_tags : [product.brands_tags];
+          for (const tag of tags) {
+            const m = checkUTMBrand(tag);
+            if (m) {
+              matchedBrand = m;
+              break;
+            }
+          }
+        }
+
         let isHit = false;
         let corporationHit: 'muller' | 'nestle' | null = null;
         let reason = "";
@@ -257,7 +273,10 @@ export default function App() {
           imageUrl,
           status: isHit ? (corporationHit === 'nestle' ? 'hit-nestle' : 'hit') : 'free',
           matchReason: reason,
-          timestamp
+          timestamp,
+          brandsTags: product.brands_tags || [],
+          embCodes: product.emb_codes || "",
+          embCodesTags: product.emb_codes_tags || []
         };
       } else {
         // Product not found in OpenFoodFacts
@@ -311,9 +330,87 @@ export default function App() {
     saveHistory(updated);
   };
 
+  // Dynamic status evaluation helper
+  const getDynamicStatus = (item: ScanHistoryItem): { status: 'hit' | 'hit-nestle' | 'free' | 'notfound'; reason: string } => {
+    if (item.status === 'notfound') {
+      return { status: 'notfound', reason: item.matchReason || "" };
+    }
+
+    // Step 1: Check brand
+    let matchedBrand = checkUTMBrand(item.brand);
+    
+    // Check brandsTags fallback
+    if (!matchedBrand && item.brandsTags) {
+      for (const tag of item.brandsTags) {
+        const m = checkUTMBrand(tag);
+        if (m) {
+          matchedBrand = m;
+          break;
+        }
+      }
+    }
+
+    if (matchedBrand) {
+      if (matchedBrand.corporation === 'muller' && activeFilters.muller) {
+        return { 
+          status: 'hit', 
+          reason: `Die Marke '${matchedBrand.name}' gehört zum Müller-Konzern.` 
+        };
+      }
+      if (matchedBrand.corporation === 'nestle' && activeFilters.nestle) {
+        return { 
+          status: 'hit-nestle', 
+          reason: `Die Marke '${matchedBrand.name}' gehört zum Nestlé-Konzern.` 
+        };
+      }
+    }
+
+    // Step 2: Check packaging codes for Müller
+    let matchedPlant: UTMPlant | null = null;
+    let matchedPlantSource = "";
+
+    if (item.embCodes && activeFilters.muller) {
+      const codes = item.embCodes.split(',').map(c => c.trim());
+      for (const code of codes) {
+        const p = checkUTMPlant(code);
+        if (p && p.corporation === 'muller') {
+          matchedPlant = p;
+          matchedPlantSource = code;
+          break;
+        }
+      }
+    }
+
+    if (!matchedPlant && item.embCodesTags && activeFilters.muller) {
+      const tags = Array.isArray(item.embCodesTags) 
+        ? item.embCodesTags 
+        : typeof item.embCodesTags === 'string' 
+          ? [item.embCodesTags] 
+          : [];
+      for (const tag of tags) {
+        const p = checkUTMPlant(tag);
+        if (p && p.corporation === 'muller') {
+          matchedPlant = p;
+          matchedPlantSource = tag;
+          break;
+        }
+      }
+    }
+
+    if (matchedPlant) {
+      return {
+        status: 'hit',
+        reason: `Wurde hergestellt im Müller-Werk in ${matchedPlant.city} (${matchedPlant.name}, Betriebsnummer ${matchedPlant.code}, abgeglichen über Code: ${matchedPlantSource}).`
+      };
+    }
+
+    return { status: 'free', reason: "" };
+  };
+
   // Recommendations generator depending on brands/categories
   const getAlternativesForProduct = (result: ScanHistoryItem): Alternative[] => {
-    if (result.status !== 'hit' && result.status !== 'hit-nestle') return [];
+    const { status } = getDynamicStatus(result);
+    if (status !== 'hit' && status !== 'hit-nestle') return [];
     
     const brandLower = result.brand.toLowerCase();
     const nameLower = result.name.toLowerCase();
@@ -593,14 +690,19 @@ export default function App() {
                         </div>
                       </div>
                       
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span className={`indicator-pill ${item.status}`}>
-                          {item.status === 'hit' ? 'Müller' : item.status === 'hit-nestle' ? 'Nestlé' : item.status === 'free' ? 'Frei' : 'Unbekannt'}
-                        </span>
-                        <button className="delete-btn" onClick={(e) => deleteHistoryItem(item.id, e)}>
-                          <X size={14} />
-                        </button>
-                      </div>
+                      {(() => {
+                        const { status: itemStatus } = getDynamicStatus(item);
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span className={`indicator-pill ${itemStatus}`}>
+                              {itemStatus === 'hit' ? 'Müller' : itemStatus === 'hit-nestle' ? 'Nestlé' : itemStatus === 'free' ? 'Frei' : 'Unbekannt'}
+                            </span>
+                            <button className="delete-btn" onClick={(e) => deleteHistoryItem(item.id, e)}>
+                              <X size={14} />
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -758,128 +860,131 @@ export default function App() {
       </main>
 
       {/* OVERLAY MODAL: DETAIL RESULT DISPLAY */}
-      {activeResult && (
-        <div className="result-backdrop" onClick={() => setActiveResult(null)}>
-          <div className="result-card glass-card" style={{ padding: 0 }} onClick={(e) => e.stopPropagation()}>
-            
-            {/* Header dependent on status */}
-            <div className={`result-header ${activeResult.status}`}>
-              <button 
-                style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
-                onClick={() => setActiveResult(null)}
-              >
-                <X size={20} />
-              </button>
-
-              <div className="result-icon-glow">
-                {activeResult.status === 'hit' || activeResult.status === 'hit-nestle' ? <AlertTriangle size={28} /> : activeResult.status === 'free' ? <CheckCircle size={28} /> : <HelpCircle size={28} />}
-              </div>
-
-              <div className="result-title">
-                {activeResult.status === 'hit' ? 'Achtung: Müller-Gruppe!' : activeResult.status === 'hit-nestle' ? 'Achtung: Nestlé-Konzern!' : activeResult.status === 'free' ? 'Super: Müller/Nestlé-Frei!' : 'Unbekanntes Produkt'}
-              </div>
-
-              <div className="result-subtitle">
-                {activeResult.status === 'hit' ? 'Dieses Produkt steht in Verbindung zu Theo Müller.' : activeResult.status === 'hit-nestle' ? 'Dieses Produkt gehört zum Nestlé-Konzern.' : activeResult.status === 'free' ? 'Keine Verbindung zu Müller oder Nestlé gefunden.' : 'Prüfung unvollständig.'}
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="result-body">
+      {activeResult && (() => {
+        const { status: currentStatus, reason: currentReason } = getDynamicStatus(activeResult);
+        return (
+          <div className="result-backdrop" onClick={() => setActiveResult(null)}>
+            <div className="result-card glass-card" style={{ padding: 0 }} onClick={(e) => e.stopPropagation()}>
               
-              {/* Product Info Block */}
-              <div className="product-details">
-                {activeResult.imageUrl ? (
-                  <img src={activeResult.imageUrl} alt={activeResult.name} className="product-img" />
-                ) : (
-                  <div className="product-no-img">
-                    <HelpCircle size={24} />
+              {/* Header dependent on status */}
+              <div className={`result-header ${currentStatus}`}>
+                <button 
+                  style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                  onClick={() => setActiveResult(null)}
+                >
+                  <X size={20} />
+                </button>
+
+                <div className="result-icon-glow">
+                  {currentStatus === 'hit' || currentStatus === 'hit-nestle' ? <AlertTriangle size={28} /> : currentStatus === 'free' ? <CheckCircle size={28} /> : <HelpCircle size={28} />}
+                </div>
+
+                <div className="result-title">
+                  {currentStatus === 'hit' ? 'Achtung: Müller-Gruppe!' : currentStatus === 'hit-nestle' ? 'Achtung: Nestlé-Konzern!' : currentStatus === 'free' ? 'Super: Müller/Nestlé-Frei!' : 'Unbekanntes Produkt'}
+                </div>
+
+                <div className="result-subtitle">
+                  {currentStatus === 'hit' ? 'Dieses Produkt steht in Verbindung zu Theo Müller.' : currentStatus === 'hit-nestle' ? 'Dieses Produkt gehört zum Nestlé-Konzern.' : currentStatus === 'free' ? 'Keine Verbindung zu Müller oder Nestlé gefunden.' : 'Prüfung unvollständig.'}
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div className="result-body">
+                
+                {/* Product Info Block */}
+                <div className="product-details">
+                  {activeResult.imageUrl ? (
+                    <img src={activeResult.imageUrl} alt={activeResult.name} className="product-img" />
+                  ) : (
+                    <div className="product-no-img">
+                      <HelpCircle size={24} />
+                    </div>
+                  )}
+                  <div className="product-meta">
+                    <div className="product-name">{activeResult.name}</div>
+                    <div className="product-brand">{activeResult.brand}</div>
+                    <div className="product-barcode">EAN: {activeResult.barcode}</div>
+                  </div>
+                </div>
+
+                {/* Match Details / Explanation */}
+                {(currentStatus === 'hit' || currentStatus === 'hit-nestle') && (
+                  <div className={`trigger-match-box ${currentStatus}`}>
+                    <div className="trigger-title">
+                      <AlertTriangle size={16} />
+                      Treffer-Begründung
+                    </div>
+                    <p className="trigger-text">
+                      <strong>{currentReason}</strong>
+                    </p>
                   </div>
                 )}
-                <div className="product-meta">
-                  <div className="product-name">{activeResult.name}</div>
-                  <div className="product-brand">{activeResult.brand}</div>
-                  <div className="product-barcode">EAN: {activeResult.barcode}</div>
-                </div>
+
+                {currentStatus === 'free' && (
+                  <div className="safe-info-box">
+                    <div className="safe-title">
+                      <CheckCircle size={16} />
+                      Unbedenklich
+                    </div>
+                    <p className="safe-text">
+                      Nach unseren Datenbank-Einträgen gehört weder die Marke noch das herstellende Werk zum Konzernumfeld der aktiven Boykott-Filter (Müller / Nestlé). Du kannst dieses Produkt beruhigt einkaufen!
+                    </p>
+                  </div>
+                )}
+
+                {currentStatus === 'notfound' && (
+                  <div style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border-subtle)', borderRadius: '12px', padding: '1.25rem' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <HelpCircle size={16} className="text-cyan" />
+                      Produkt fehlt in OpenFoodFacts
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.45 }}>
+                      Das Produkt wurde in der weltweiten Datenbank nicht gefunden. Du kannst es selbst visuell prüfen:
+                      <br /><br />
+                      Suche auf der Verpackung nach dem <strong>Genusstauglichkeitskennzeichen</strong> (ovales EU-Kürzel). Wenn dort eine der folgenden Betriebsnummern steht, handelt es sich um Müller-Ware:
+                      <br />
+                      <code style={{ color: 'var(--color-danger)', background: 'var(--color-danger-bg)', display: 'inline-block', padding: '0.2rem 0.4rem', borderRadius: '4px', marginTop: '0.5rem' }}>
+                        DE BY 718 EG | DE SN 016 EG | DE BY 103 EG | DE NW 401 EG | DE BW 033 EG
+                      </code>
+                    </p>
+                  </div>
+                )}
+
+                {/* Alternatives grid (for hits only) */}
+                {(currentStatus === 'hit' || currentStatus === 'hit-nestle') && (
+                  <div className="alternatives-container">
+                    <h4 className="alt-title">
+                      <Sparkles size={16} className="text-cyan" />
+                      Empfohlene boykottfreie Alternativen:
+                    </h4>
+                    <div className="alt-grid">
+                      {getAlternativesForProduct(activeResult).map((alt, idx) => (
+                        <div key={idx} className="alt-card">
+                          <div className="alt-card-header">
+                            <div className="alt-name">{alt.name}</div>
+                            <span className={`alt-badge ${alt.type}`}>
+                              {alt.type === 'organic' ? 'Bio' : alt.type === 'regional' ? 'Regional' : alt.type === 'plant-based' ? 'Vegan' : 'Unabhängig'}
+                            </span>
+                          </div>
+                          <p className="alt-desc">{alt.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Match Details / Explanation */}
-              {(activeResult.status === 'hit' || activeResult.status === 'hit-nestle') && (
-                <div className={`trigger-match-box ${activeResult.status}`}>
-                  <div className="trigger-title">
-                    <AlertTriangle size={16} />
-                    Treffer-Begründung
-                  </div>
-                  <p className="trigger-text">
-                    <strong>{activeResult.matchReason}</strong>
-                  </p>
-                </div>
-              )}
+              {/* Modal Footer */}
+              <div className="result-footer">
+                <button className="btn btn-primary" onClick={() => setActiveResult(null)}>
+                  Schließen
+                </button>
+              </div>
 
-              {activeResult.status === 'free' && (
-                <div className="safe-info-box">
-                  <div className="safe-title">
-                    <CheckCircle size={16} />
-                    Unbedenklich
-                  </div>
-                  <p className="safe-text">
-                    Nach unseren Datenbank-Einträgen gehört weder die Marke noch das herstellende Werk zum Konzernumfeld der aktiven Boykott-Filter (Müller / Nestlé). Du kannst dieses Produkt beruhigt einkaufen!
-                  </p>
-                </div>
-              )}
-
-              {activeResult.status === 'notfound' && (
-                <div style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border-subtle)', borderRadius: '12px', padding: '1.25rem' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    <HelpCircle size={16} className="text-cyan" />
-                    Produkt fehlt in OpenFoodFacts
-                  </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.45 }}>
-                    Das Produkt wurde in der weltweiten Datenbank nicht gefunden. Du kannst es selbst visuell prüfen:
-                    <br /><br />
-                    Suche auf der Verpackung nach dem <strong>Genusstauglichkeitskennzeichen</strong> (ovales EU-Kürzel). Wenn dort eine der folgenden Betriebsnummern steht, handelt es sich um Müller-Ware:
-                    <br />
-                    <code style={{ color: 'var(--color-danger)', background: 'var(--color-danger-bg)', display: 'inline-block', padding: '0.2rem 0.4rem', borderRadius: '4px', marginTop: '0.5rem' }}>
-                      DE BY 718 EG | DE SN 016 EG | DE BY 103 EG | DE NW 401 EG | DE BW 033 EG
-                    </code>
-                  </p>
-                </div>
-              )}
-
-              {/* Alternatives grid (for hits only) */}
-              {(activeResult.status === 'hit' || activeResult.status === 'hit-nestle') && (
-                <div className="alternatives-container">
-                  <h4 className="alt-title">
-                    <Sparkles size={16} className="text-cyan" />
-                    Empfohlene boykottfreie Alternativen:
-                  </h4>
-                  <div className="alt-grid">
-                    {getAlternativesForProduct(activeResult).map((alt, idx) => (
-                      <div key={idx} className="alt-card">
-                        <div className="alt-card-header">
-                          <div className="alt-name">{alt.name}</div>
-                          <span className={`alt-badge ${alt.type}`}>
-                            {alt.type === 'organic' ? 'Bio' : alt.type === 'regional' ? 'Regional' : alt.type === 'plant-based' ? 'Vegan' : 'Unabhängig'}
-                          </span>
-                        </div>
-                        <p className="alt-desc">{alt.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
-
-            {/* Modal Footer */}
-            <div className="result-footer">
-              <button className="btn btn-primary" onClick={() => setActiveResult(null)}>
-                Schließen
-              </button>
-            </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* FOOTER */}
       <footer className="app-footer">
