@@ -1,32 +1,39 @@
 # 🥛 Müller-Fascho-Buster — Konsum-Boykott-Scanner
 
-**Müller-Fascho-Buster** ist eine datenschutzfreundliche, clientseitige Web-App im edlen Glassmorphic-Dark-Mode, mit der Verbraucher im Supermarkt sofort prüfen können, ob ein Produkt in Verbindung zur **Unternehmensgruppe Theo Müller** steht. 
+**Müller-Fascho-Buster** ist eine datenschutzfreundliche, clientseitige Web-App im edlen Glassmorphic-Dark-Mode, mit der Verbraucher im Supermarkt sofort prüfen können, ob ein Produkt in Verbindung zur **Unternehmensgruppe Theo Müller** oder dem **Nestlé-Konzern** steht. 
 
-Mit nur einem Scan entlarven Sie Marken wie **Müllermilch**, **Weihenstephan**, **Landliebe**, **Sachsenmilch** sowie verdeckte Eigenmarken von Discountern!
+Mit nur einem Scan entlarven Sie Marken wie **Müllermilch**, **Weihenstephan**, **Landliebe**, **Wagner Pizza**, **Maggi**, **Thomy**, **San Pellegrino** sowie verdeckte Eigenmarken! Über interaktive Boykott-Filter lässt sich präzise steuern, welche Konzerne im Scan-Alarm berücksichtigt werden.
 
 👉 **Live-Anwendung:** [https://github.com/kolkrabeofdoom/mueller-fascho-buster](https://github.com/kolkrabeofdoom/mueller-fascho-buster)
 
 ---
 
-## 🧐 Warum Müller boykottieren? (Hintergrund)
+## 🧐 Warum Müller & Nestlé boykottieren? (Hintergrund)
 
-Die Kritik an Theo Müller und der *Unternehmensgruppe Theo Müller (UTM)* ist vielschichtig:
-*   **Politische Verstrickungen:** Theo Müller pflegt nach eigenen Angaben engen Kontakt zur Führungsriege der rechtsextremen **AfD** (unter anderem Treffen mit Bundessprecherin Alice Weidel). Er rechtfertigt dies als „rein informelles Interesse“, unterstützt jedoch rechtsextreme Akteure durch gesellschaftliche Legitimierung.
-*   **Subventions-Abgreifung:** Bau von Megafabriken (z. B. Sachsenmilch Leppersdorf) mit Millionen an Steuergeldern und anschließender Abbau von Arbeitsplätzen an anderen Standorten.
-*   **Steuerflucht:** Umzug des Firmensitzes und Theo Müllers Privatwohnsitzes in die Schweiz zur Einsparung von Erbschafts- und Einkommenssteuern in Deutschland.
-*   **Druck auf die Landwirtschaft:** Monopolstellung und aggressiver Preisdruck zwingen zahlreiche Milchbauern zur Betriebsaufgabe.
+Die Kritik an den beiden Konzernen ist vielschichtig und fundiert:
+*   **Unternehmensgruppe Theo Müller (UTM):**
+    *   **Politische Verstrickungen:** Theo Müller pflegt engen Kontakt zur Führungsriege der rechtsextremen **AfD** (Alice Weidel).
+    *   **Subventions-Abgreifung:** Bau von Großanlagen mit Millionen an Steuergeldern und zeitgleicher Abbau regionaler Standorte.
+    *   **Steuerflucht:** Verlagerung des Wohn- und Firmensitzes in die Schweiz zur Steuervermeidung in Deutschland.
+    *   **Monopolisierung:** Aggressiver Preisdruck zwingt regionale Milchbauern zur Betriebsaufgabe.
+*   **Nestlé-Konzern:**
+    *   **Ressourcen-Ausbeutung:** Global umstrittene Privatisierung und Abfüllung von Grundwasser in Dürregebieten (Vittel, Perrier).
+    *   **Umweltbelastung:** Einer der weltweit größten Plastikmüll-Erzeuger mit mangelnder Kreislaufwirtschaft.
+    *   **Kinderarbeit & Ausbeutung:** Systematische Menschenrechtsverletzungen und ausbeuterische Kinderarbeit in Kakao-Lieferketten.
+    *   **Aggressives Marketing:** Fragwürdige Vermarktung von Säuglingsnahrung in Entwicklungsländern.
 
 ---
 
 ## ✨ Hauptfunktionen
 
-*   📷 **Barcode-Scanner (Kamera):** Schneller Scan von 13-stelligen EAN-Codes direkt im Supermarkt über die Smartphone-Kamera (unterstützt durch die leistungsfähige `html5-qrcode` Bibliothek).
+*   🛡️ **Interaktive Boykott-Filter:** Selektives Zu- und Abschalten von Müller und/oder Nestlé per Klick. Der Scan-Alarm reagiert nur auf aktive Filter!
+*   📷 **Barcode-Scanner (Kamera):** Schneller Scan von EAN-Codes direkt im Markt über die Smartphone-Kamera (unterstützt durch die `html5-qrcode` Bibliothek).
 *   🔢 **Manuelle Barcode-Suche:** Option zur manuellen Eingabe des EAN-Codes, falls kein Kamerazugriff möglich ist.
-*   🔎 **Müller-Werk-Stempel-Checker:** Discounter-Eigenmarken (z. B. von Aldi, Lidl, Netto) verbergen oft ihren wahren Hersteller. Der integrierte Stempel-Checker gleicht das **ovale EU-Identitätskennzeichen** (z. B. `DE SN 016 EG`) direkt mit allen bekannten Betriebsstätten der Müller-Gruppe ab!
-*   🔄 **Echtzeit-Abgleich (OpenFoodFacts API v2):** Direkte Anbindung an die weltgrößte offene Lebensmittel-Datenbank mit robustem Fallback-Handling für nicht gelistete Produkte.
-*   🛡️ **Unabhängige Alternativen:** Bei einem Treffer schlägt die App sofort Müller-freie Molkerei-Alternativen vor (z. B. *Berchtesgadener Land*, *Schwarzwaldmilch*, *Andechser Natur* sowie pflanzliche Produkte von *Oatly* oder *Alpro*).
+*   🔎 **Müller-Werk-Stempel-Checker:** Discounter-Eigenmarken (z. B. von Aldi, Lidl, Netto) verbergen oft ihren wahren Hersteller. Der integrierte Stempel-Checker gleicht das **ovale EU-Identitätskennzeichen** (z. B. `DE SN 016 EG`) mit allen Müller-Molkereien ab!
+*   🔄 **Echtzeit-Abgleich (OpenFoodFacts API v2):** Direkte Anbindung an die weltgrößte offene Lebensmittel-Datenbank mit robustem Fallback-Handling.
+*   🛡️ **Unabhängige Alternativen:** Bei einem Treffer schlägt die App sofort konzernfreie Alternativen vor (z. B. regionale Molkereien, Taifun Tofu für vegane Alternativen, Gustavo Gusto für Pizza, Fritz-Kola/unabhängiges Wasser).
 *   📜 **Lokale Scan-Historie:** Ihre letzten 25 Scans werden ausschließlich lokal im Browser-Speicher (`localStorage`) gesichert und können jederzeit gelöscht werden.
-*   🏢 **Konzern-Showcase:** Eine bildschöne, interaktive Übersicht aller Submarken und Betriebsstätten des Müller-Konzerns.
+*   🏢 **Konzern-Showcase:** Eine bildschöne, interaktive Übersicht aller Submarken und Betriebsstätten der boykottierten Konzerne.
 
 ---
 
@@ -42,10 +49,12 @@ Die App läuft **zu 100 % im Browser** und benötigt kein Tracking-Backend. Das 
 ```mermaid
 graph TD
     A[Kunde scannt Barcode] --> B[Abfrage OpenFoodFacts API v2]
-    B -->|Markenname enthält 'Müller'| C[ALARM: Müller-Gruppe]
-    B -->|Betriebsnummer in Müller-Datenbank| C
-    B -->|Kein Treffer| D[Müller-Frei oder Unbekannt]
-    C --> E[Empfehlung Müller-freier Alternativen]
+    B --> C{Aktive Filter prüfen}
+    C -->|Müller aktiv & Treffer| D[ALARM: Müller-Gruppe]
+    C -->|Nestlé aktiv & Treffer| E[ALARM: Nestlé-Konzern]
+    C -->|Filter inaktiv / Kein Treffer| F[Müller/Nestlé-Frei oder Unbekannt]
+    D --> G[Empfehlung boykottfreier Alternativen]
+    E --> G
 ```
 
 ---
