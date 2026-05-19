@@ -274,10 +274,28 @@ export const independentAlternatives: Alternative[] = [
     recommendedFor: ["joghurt", "milch", "dessert"]
   },
   {
+    name: "Taifun Tofu",
+    type: "organic",
+    description: "Der unabhängige deutsche Bio-Tofu-Pionier aus Freiburg. Um Übernahmen durch Großkonzerne dauerhaft auszuschließen, ist das Unternehmen in einer unverkäuflichen Stiftung organisiert. Verwendet ausschließlich europäischen Bio-Soja aus regionalem Vertragsanbau.",
+    recommendedFor: ["tofu", "vegan", "pflanzlich"]
+  },
+  {
+    name: "Lord of Tofu",
+    type: "organic",
+    description: "Inhabergeführtes Familienunternehmen aus Lörrach. Bekannt für innovative Bio-Tofu-Spezialitäten mit regionalem Soja und handwerklicher Herstellung.",
+    recommendedFor: ["tofu", "vegan", "pflanzlich"]
+  },
+  {
+    name: "Kato Tofu",
+    type: "organic",
+    description: "Inhabergeführte Bio-Tofurei aus Kassel. Stellt seit Jahrzehnten in handwerklicher Tradition hochwertigen Tofu aus deutschem und europäischem Bio-Soja her.",
+    recommendedFor: ["tofu", "vegan", "pflanzlich"]
+  },
+  {
     name: "Alnatura / dmBio / Vemondo",
     type: "independent",
-    description: "Bio-Eigenmarken von Drogerien und Supermärkten. Bieten preiswerte und qualitativ hochwertige Alternativen zu klassischen Joghurt- und Feinkostprodukten.",
-    recommendedFor: ["joghurt", "milch", "dessert", "saucen"]
+    description: "Bio-Eigenmarken von Drogerien und Supermärkten. Bieten preiswerte, qualitativ hochwertige Alternativen zu klassischen Milch-, Feinkost- und Tofuprodukten.",
+    recommendedFor: ["joghurt", "milch", "dessert", "saucen", "tofu"]
   }
 ];
 

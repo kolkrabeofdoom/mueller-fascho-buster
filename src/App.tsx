@@ -289,7 +289,9 @@ export default function App() {
     
     let matchedCategory = 'milch'; // default fallback
     
-    if (brandLower.includes('loose') || brandLower.includes('quäse') || nameLower.includes('käse') || nameLower.includes('cheese')) {
+    if (brandLower.includes('berief') || nameLower.includes('tofu') || nameLower.includes('soja') || nameLower.includes('soy')) {
+      matchedCategory = 'tofu';
+    } else if (brandLower.includes('loose') || brandLower.includes('quäse') || nameLower.includes('käse') || nameLower.includes('cheese')) {
       matchedCategory = 'kaese';
     } else if (brandLower.includes('homann') || brandLower.includes('nadler') || nameLower.includes('salat') || nameLower.includes('fisch') || nameLower.includes('sauce') || nameLower.includes('dressing')) {
       matchedCategory = 'saucen';
