@@ -119,6 +119,13 @@ export const utmBrands: Record<string, UTMBrand> = {
     category: "Saucen, Dressings, Fischprodukte",
     description: "Bekannte Feinkostmarke. ACHTUNG: Die Feinkostsalate-Sparte wurde 2021 an Signature Foods verkauft. Dressings, Saucen und Fischprodukte gehören weiterhin zu Müller.",
     relation: "Saucen und Fisch verbleiben in der Müller-Feinkostsparte. Salate sind unabhängig."
+  },
+  berief: {
+    id: "berief",
+    name: "Berief",
+    category: "Pflanzliche Drinks, Tofu, Joghurt-Alternativen",
+    description: "Bio-Pflanzendrink- und Tofu-Hersteller aus Beckum. Die Übernahme durch die Unternehmensgruppe Theo Müller wurde im Mai 2026 bekannt gegeben.",
+    relation: "Wird innerhalb der Müller-Gruppe zur Stärkung der pflanzlichen Feinkost- und Molkereisparte geführt."
   }
 };
 
