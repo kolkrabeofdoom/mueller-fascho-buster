@@ -14,7 +14,12 @@ import {
   ExternalLink, 
   ShieldCheck,
   HelpCircle,
-  MapPin
+  MapPin,
+  Award,
+  Trophy,
+  Sprout,
+  Calendar,
+  Info
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { 
@@ -23,9 +28,12 @@ import {
   boycottReasons, 
   independentAlternatives, 
   checkUTMBrand, 
-  checkUTMPlant
+  checkUTMPlant,
+  checkOfflineProduct,
+  checkEANPrefix
 } from './data/utmDatabase';
 import type { UTMPlant, Alternative } from './data/utmDatabase';
+import { seasonalItems } from './data/seasonalDatabase';
 import './App.css';
 
 interface ScanHistoryItem {
@@ -34,16 +42,18 @@ interface ScanHistoryItem {
   name: string;
   brand: string;
   imageUrl: string | null;
-  status: 'hit' | 'hit-nestle' | 'free' | 'notfound';
+  status: 'hit' | 'hit-nestle' | 'hit-anthroposophy' | 'free' | 'notfound';
   matchReason?: string;
   timestamp: string;
   brandsTags?: string[];
   embCodes?: string;
   embCodesTags?: string[] | string;
+  loadedOffline?: boolean;
+  loadedFromCache?: boolean;
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'scan' | 'explore' | 'political'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'explore' | 'political' | 'dashboard' | 'saison'>('scan');
   const [eanInput, setEanInput] = useState('');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -52,17 +62,68 @@ export default function App() {
   const [vetResult, setVetResult] = useState<{ match: UTMPlant | null; checked: boolean }>({ match: null, checked: false });
   const [activeResult, setActiveResult] = useState<ScanHistoryItem | null>(null);
   const [scanHistory, setScanHistory] = useState<ScanHistoryItem[]>([]);
-  const [activeFilters, setActiveFilters] = useState<{ muller: boolean; nestle: boolean }>(() => {
-    const saved = localStorage.getItem('mfb_filters');
+  
+  // Saison-Buster states
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => new Date().getMonth());
+  const [saisonCategoryFilter, setSaisonCategoryFilter] = useState<'all' | 'vegetable' | 'fruit' | 'herb'>('all');
+  const [saisonTypeFilter, setSaisonTypeFilter] = useState<'all' | 'freiland' | 'lager' | 'geschuetzt'>('all');
+  const [saisonSearchQuery, setSaisonSearchQuery] = useState('');
+  
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [offlineCache, setOfflineCache] = useState<Record<string, ScanHistoryItem>>(() => {
+    const saved = localStorage.getItem('mfb_offline_cache');
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {}
+      } catch (e) {
+        console.error("Failed to parse offline cache", e);
+      }
     }
-    return { muller: true, nestle: true };
+    return {};
   });
 
-  const handleFilterToggle = (key: 'muller' | 'nestle') => {
+  const [activeFilters, setActiveFilters] = useState<{ muller: boolean; nestle: boolean; anthroposophy: boolean }>(() => {
+    const saved = localStorage.getItem('mfb_filters');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          muller: parsed.muller !== false,
+          nestle: parsed.nestle !== false,
+          anthroposophy: parsed.anthroposophy !== false
+        };
+      } catch (e) {}
+    }
+    return { muller: true, nestle: true, anthroposophy: true };
+  });
+
+  // Track online status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Sync offline cache to localStorage
+  const saveToOfflineCache = (item: ScanHistoryItem) => {
+    setOfflineCache(prev => {
+      const next = { ...prev, [item.barcode]: item };
+      // Limit cache size to 100 entries to avoid overflowing localStorage
+      const keys = Object.keys(next);
+      if (keys.length > 100) {
+        delete next[keys[0]];
+      }
+      localStorage.setItem('mfb_offline_cache', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleFilterToggle = (key: 'muller' | 'nestle' | 'anthroposophy') => {
     setActiveFilters(prev => {
       const next = { ...prev, [key]: !prev[key] };
       localStorage.setItem('mfb_filters', JSON.stringify(next));
@@ -176,6 +237,87 @@ export default function App() {
     setLoading(true);
     setCameraError(null);
 
+    const timestamp = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+    // --- STEP 1: CHECK CURATED OFFLINE PRODUCT DATABASE ---
+    const offlineMatch = checkOfflineProduct(cleanBarcode);
+    if (offlineMatch) {
+      const matchedBrand = utmBrands[offlineMatch.matchedBrandId];
+      let isHit = false;
+      let corporationHit: 'muller' | 'nestle' | 'anthroposophy' | null = null;
+      let reason = "";
+
+      if (matchedBrand) {
+        if (matchedBrand.corporation === 'muller' && activeFilters.muller) {
+          isHit = true;
+          corporationHit = 'muller';
+          reason = `Die Marke '${matchedBrand.name}' gehört zum Müller-Konzern (Offline-Treffer).`;
+        } else if (matchedBrand.corporation === 'nestle' && activeFilters.nestle) {
+          isHit = true;
+          corporationHit = 'nestle';
+          reason = `Die Marke '${matchedBrand.name}' gehört zum Nestlé-Konzern (Offline-Treffer).`;
+        } else if (matchedBrand.corporation === 'anthroposophy' && activeFilters.anthroposophy) {
+          isHit = true;
+          corporationHit = 'anthroposophy';
+          reason = `Die Marke '${matchedBrand.name}' steht in Verbindung zur Anthroposophie (Offline-Treffer).`;
+        }
+      }
+
+      const historyItem: ScanHistoryItem = {
+        id: Date.now().toString(),
+        barcode: cleanBarcode,
+        name: offlineMatch.name,
+        brand: offlineMatch.brand,
+        imageUrl: offlineMatch.imageUrl,
+        status: isHit ? (corporationHit === 'nestle' ? 'hit-nestle' : corporationHit === 'anthroposophy' ? 'hit-anthroposophy' : 'hit') : 'free',
+        matchReason: reason || `Produkt offline geprüft: Keine aktiven Boykott-Warnungen für diese Marke.`,
+        timestamp,
+        loadedOffline: true
+      };
+
+      const updatedHistory = [historyItem, ...scanHistory.filter(h => h.barcode !== cleanBarcode)].slice(0, 25);
+      saveHistory(updatedHistory);
+      setActiveResult(historyItem);
+      setEanInput('');
+      setLoading(false);
+      return;
+    }
+
+    // --- STEP 2: CHECK OFFLINE CACHE (PREVIOUS SCANS) ---
+    if (offlineCache[cleanBarcode]) {
+      const cachedItem = { ...offlineCache[cleanBarcode], id: Date.now().toString(), timestamp, loadedFromCache: true };
+      
+      const updatedHistory = [cachedItem, ...scanHistory.filter(h => h.barcode !== cleanBarcode)].slice(0, 25);
+      saveHistory(updatedHistory);
+      setActiveResult(cachedItem);
+      setEanInput('');
+      setLoading(false);
+      return;
+    }
+
+    // --- STEP 3: IF OFFLINE & NOT IN CACHE/DB ---
+    if (!isOnline) {
+      const historyItem: ScanHistoryItem = {
+        id: Date.now().toString(),
+        barcode: cleanBarcode,
+        name: "Produkt offline nicht prüfbar",
+        brand: "Keine Internetverbindung",
+        imageUrl: null,
+        status: 'notfound',
+        matchReason: "Du bist offline! Dieses Produkt ist nicht in unserer Offline-Datenbank und es gibt keine gecachte Version. Scanne es erneut, sobald du wieder Netz hast.",
+        timestamp,
+        loadedOffline: true
+      };
+
+      const updatedHistory = [historyItem, ...scanHistory.filter(h => h.barcode !== cleanBarcode)].slice(0, 25);
+      saveHistory(updatedHistory);
+      setActiveResult(historyItem);
+      setEanInput('');
+      setLoading(false);
+      return;
+    }
+
+    // --- STEP 4: ONLINE API LOOKUP ---
     try {
       const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}`);
       let data;
@@ -188,7 +330,6 @@ export default function App() {
       }
       
       let historyItem: ScanHistoryItem;
-      const timestamp = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
 
       if (data.status === 1 && data.product) {
         const product = data.product;
@@ -212,7 +353,7 @@ export default function App() {
         }
 
         let isHit = false;
-        let corporationHit: 'muller' | 'nestle' | null = null;
+        let corporationHit: 'muller' | 'nestle' | 'anthroposophy' | null = null;
         let reason = "";
 
         if (matchedBrand) {
@@ -224,6 +365,10 @@ export default function App() {
             isHit = true;
             corporationHit = 'nestle';
             reason = `Die Marke '${matchedBrand.name}' gehört zum Nestlé-Konzern.`;
+          } else if (matchedBrand.corporation === 'anthroposophy' && activeFilters.anthroposophy) {
+            isHit = true;
+            corporationHit = 'anthroposophy';
+            reason = `Die Marke '${matchedBrand.name}' steht in Verbindung zur Anthroposophie.`;
           }
         }
         
@@ -271,23 +416,36 @@ export default function App() {
           name: productName,
           brand,
           imageUrl,
-          status: isHit ? (corporationHit === 'nestle' ? 'hit-nestle' : 'hit') : 'free',
+          status: isHit ? (corporationHit === 'nestle' ? 'hit-nestle' : corporationHit === 'anthroposophy' ? 'hit-anthroposophy' : 'hit') : 'free',
           matchReason: reason,
           timestamp,
           brandsTags: product.brands_tags || [],
           embCodes: product.emb_codes || "",
           embCodesTags: product.emb_codes_tags || []
         };
+
+        // Save successfully online fetched items to offline cache
+        saveToOfflineCache(historyItem);
       } else {
-        // Product not found in OpenFoodFacts
+        // Product not found in OpenFoodFacts - Check EAN Prefix Fallback
+        const prefixInfo = checkEANPrefix(cleanBarcode);
+        let matchReason = "Dieses Produkt wurde nicht bei OpenFoodFacts gefunden. Du kannst das Genusstauglichkeitskennzeichen (ovaler Stempel) manuell unten überprüfen.";
+        let status: 'hit' | 'hit-nestle' | 'hit-anthroposophy' | 'free' | 'notfound' = 'notfound';
+
+        if (prefixInfo && prefixInfo.matchingCorp && activeFilters[prefixInfo.matchingCorp]) {
+          const corp = prefixInfo.matchingCorp;
+          status = corp === 'nestle' ? 'hit-nestle' : corp === 'anthroposophy' ? 'hit-anthroposophy' : 'hit';
+          matchReason = `⚠️ VORSICHT (Präfix-Treffer): Das Produkt fehlt in der OpenFoodFacts-Datenbank, aber der EAN-Code beginnt mit '${prefixInfo.prefix}', was sehr wahrscheinlich zum Boykott-Kandidaten '${prefixInfo.matchingBrandName}' gehört!`;
+        }
+
         historyItem = {
           id: Date.now().toString(),
           barcode: cleanBarcode,
-          name: "Produkt nicht in Datenbank",
-          brand: "Prüfe Betriebsnummer manuell!",
+          name: prefixInfo && prefixInfo.matchingCorp && prefixInfo.matchingBrandName ? `Verdacht auf ${prefixInfo.matchingBrandName}` : "Produkt nicht in Datenbank",
+          brand: (prefixInfo && prefixInfo.matchingCorp && prefixInfo.matchingBrandName) ? prefixInfo.matchingBrandName : "Prüfe Betriebsnummer manuell!",
           imageUrl: null,
-          status: 'notfound',
-          matchReason: "Dieses Produkt wurde nicht bei OpenFoodFacts gefunden. Du kannst das Genusstauglichkeitskennzeichen (ovaler Stempel) manuell unten überprüfen.",
+          status,
+          matchReason,
           timestamp
         };
       }
@@ -331,7 +489,7 @@ export default function App() {
   };
 
   // Dynamic status evaluation helper
-  const getDynamicStatus = (item: ScanHistoryItem): { status: 'hit' | 'hit-nestle' | 'free' | 'notfound'; reason: string } => {
+  const getDynamicStatus = (item: ScanHistoryItem): { status: 'hit' | 'hit-nestle' | 'hit-anthroposophy' | 'free' | 'notfound'; reason: string } => {
     if (item.status === 'notfound') {
       return { status: 'notfound', reason: item.matchReason || "" };
     }
@@ -361,6 +519,12 @@ export default function App() {
         return { 
           status: 'hit-nestle', 
           reason: `Die Marke '${matchedBrand.name}' gehört zum Nestlé-Konzern.` 
+        };
+      }
+      if (matchedBrand.corporation === 'anthroposophy' && activeFilters.anthroposophy) {
+        return { 
+          status: 'hit-anthroposophy', 
+          reason: `Die Marke '${matchedBrand.name}' steht in Verbindung zur Anthroposophie.` 
         };
       }
     }
@@ -404,20 +568,34 @@ export default function App() {
       };
     }
 
+    // Step 3: Check EAN prefix matching as a fallback
+    const prefixInfo = checkEANPrefix(item.barcode);
+    if (prefixInfo && prefixInfo.matchingCorp) {
+      const corp = prefixInfo.matchingCorp;
+      if (activeFilters[corp]) {
+        return {
+          status: corp === 'nestle' ? 'hit-nestle' : corp === 'anthroposophy' ? 'hit-anthroposophy' : 'hit',
+          reason: `⚠️ VORSICHT (Präfix-Treffer): Der EAN-Code beginnt mit '${prefixInfo.prefix}', was sehr wahrscheinlich zum Boykott-Kandidaten '${prefixInfo.matchingBrandName}' gehört!`
+        };
+      }
+    }
+
     return { status: 'free', reason: "" };
   };
 
   // Recommendations generator depending on brands/categories
   const getAlternativesForProduct = (result: ScanHistoryItem): Alternative[] => {
     const { status } = getDynamicStatus(result);
-    if (status !== 'hit' && status !== 'hit-nestle') return [];
+    if (status !== 'hit' && status !== 'hit-nestle' && status !== 'hit-anthroposophy') return [];
     
     const brandLower = result.brand.toLowerCase();
     const nameLower = result.name.toLowerCase();
     
     let matchedCategory = 'milch'; // default fallback
     
-    if (brandLower.includes('berief') || nameLower.includes('tofu') || nameLower.includes('soja') || nameLower.includes('soy')) {
+    if (brandLower.includes('alverde') || brandLower.includes('weleda') || brandLower.includes('hauschka') || brandLower.includes('wala') || brandLower.includes('dm') || nameLower.includes('creme') || nameLower.includes('duschgel') || nameLower.includes('shampoo') || nameLower.includes('kosmetik') || nameLower.includes('pflege') || nameLower.includes('lotion')) {
+      matchedCategory = 'kosmetik';
+    } else if (brandLower.includes('berief') || nameLower.includes('tofu') || nameLower.includes('soja') || nameLower.includes('soy')) {
       matchedCategory = 'tofu';
     } else if (brandLower.includes('loose') || brandLower.includes('quäse') || nameLower.includes('käse') || nameLower.includes('cheese')) {
       matchedCategory = 'kaese';
@@ -439,8 +617,128 @@ export default function App() {
       matchedCategory = 'saucen';
     }
 
-    return independentAlternatives.filter(alt => alt.recommendedFor.includes(matchedCategory));
+    return independentAlternatives.filter(alt => 
+      alt.recommendedFor.includes(matchedCategory) &&
+      !alt.isAnthroposophic &&
+      !alt.name.toLowerCase().includes('alnatura') &&
+      !alt.name.toLowerCase().includes('weleda') &&
+      !alt.name.toLowerCase().includes('wala') &&
+      !alt.name.toLowerCase().includes('hauschka') &&
+      !alt.name.toLowerCase().includes('demeter') &&
+      !alt.name.toLowerCase().includes('bauckhof') &&
+      !alt.name.toLowerCase().includes('voelkel') &&
+      !alt.name.toLowerCase().includes('spielberger') &&
+      !alt.name.toLowerCase().includes('holle') &&
+      !alt.name.toLowerCase().includes('dmbio') &&
+      !alt.name.toLowerCase().includes('dm-') &&
+      !alt.name.toLowerCase().includes('alverde')
+    );
   };
+
+  // --- STATS & ACHIEVEMENTS CALCULATION ---
+  const stats = React.useMemo(() => {
+    let mullerHits = 0;
+    let nestleHits = 0;
+    let anthroHits = 0;
+    let safeScans = 0;
+
+    scanHistory.forEach(item => {
+      const { status } = getDynamicStatus(item);
+      if (status === 'hit') mullerHits++;
+      else if (status === 'hit-nestle') nestleHits++;
+      else if (status === 'hit-anthroposophy') anthroHits++;
+      else if (status === 'free') safeScans++;
+    });
+
+    const totalValidScans = mullerHits + nestleHits + anthroHits + safeScans;
+    const busterScore = totalValidScans > 0 ? Math.round((safeScans / totalValidScans) * 100) : 100;
+
+    return {
+      mullerHits,
+      nestleHits,
+      anthroHits,
+      safeScans,
+      totalValidScans,
+      busterScore
+    };
+  }, [scanHistory, activeFilters]);
+
+  const achievements = React.useMemo(() => {
+    const totalScans = scanHistory.length;
+    const hasMullerHit = scanHistory.some(item => getDynamicStatus(item).status === 'hit');
+    const hasNestleHit = scanHistory.some(item => getDynamicStatus(item).status === 'hit-nestle');
+    const hasAnthroHit = scanHistory.some(item => getDynamicStatus(item).status === 'hit-anthroposophy');
+    const isPerfectFive = stats.totalValidScans >= 5 && stats.busterScore === 100;
+    const isBoycottMaster = scanHistory.filter(item => getDynamicStatus(item).status !== 'notfound').length >= 15;
+
+    return [
+      {
+        id: 'first_scan',
+        title: 'Ersttäter',
+        description: 'Deinen ersten Produkt-Scan durchgeführt.',
+        unlocked: totalScans > 0,
+        icon: 'Award',
+        color: '#00e5ff'
+      },
+      {
+        id: 'muller_buster',
+        title: 'Müller-Buster',
+        description: 'Erfolgreich ein Müller-Konzernprodukt entlarvt.',
+        unlocked: hasMullerHit,
+        icon: 'Trophy',
+        color: '#ff4433'
+      },
+      {
+        id: 'nestle_hunter',
+        title: 'Nestlé-Jäger',
+        description: 'Ein Produkt des Nestlé-Konzerns aufgespürt.',
+        unlocked: hasNestleHit,
+        icon: 'Trophy',
+        color: '#00d2ff'
+      },
+      {
+        id: 'anthro_filter',
+        title: 'Schattenboxer',
+        description: 'Verbindung zur Anthroposophie/Demeter aufgedeckt.',
+        unlocked: hasAnthroHit,
+        icon: 'Trophy',
+        color: '#c38eff'
+      },
+      {
+        id: 'purity_law',
+        title: 'Reinheitsgebot',
+        description: '5+ Scans absolviert und 100% boykottfreie Weste!',
+        unlocked: isPerfectFive,
+        icon: 'Award',
+        color: '#00e676'
+      },
+      {
+        id: 'boycott_master',
+        title: 'Boykott-Meister',
+        description: '15+ Produkte erfolgreich auf deine Blacklist gecheckt.',
+        unlocked: isBoycottMaster,
+        icon: 'Award',
+        color: '#ffc107'
+      }
+    ];
+  }, [scanHistory, stats]);
+
+  // Motivational quote based on score
+  const motivationText = React.useMemo(() => {
+    if (stats.totalValidScans === 0) {
+      return "Scanne dein erstes Produkt im Laden, um deinen persönlichen Buster-Score zu berechnen!";
+    }
+    if (stats.busterScore === 100) {
+      return "Makellose Weste! Du kaufst absolut bewusst ein und meidest Ausbeutung, Esoterik und rechtsextreme Verflechtungen. Weiter so!";
+    }
+    if (stats.busterScore >= 80) {
+      return "Ziemlich gut! Dein Einkaufswagen ist fast sauber. Nur noch ein paar kleine Anpassungen und du bist komplett buster-rein.";
+    }
+    if (stats.busterScore >= 50) {
+      return "Auf dem Weg der Besserung! Du entlarvst schon einige unschöne Produkte, aber es schleicht sich noch zu viel Müller oder Nestlé ein.";
+    }
+    return "Oje, dein Einkaufswagen ist eine Konzern-Festung! Nutze unsere empfohlenen Alternativen, um dich von Müller, Nestlé und Anthroposophie zu befreien.";
+  }, [stats]);
 
   return (
     <div className="app-container">
@@ -451,6 +749,10 @@ export default function App() {
             Boykott-Buster
             <span className="logo-badge">Beta</span>
           </h1>
+          <span className={`network-badge ${isOnline ? 'online' : 'offline'}`}>
+            <span className="network-dot"></span>
+            {isOnline ? 'Online' : 'Offline-Modus'}
+          </span>
         </div>
         
         <nav className="app-nav">
@@ -474,6 +776,20 @@ export default function App() {
           >
             <BookOpen size={18} />
             <span>Hintergrund</span>
+          </button>
+          <button 
+            className={`nav-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <Trophy size={18} />
+            <span>Mein Score</span>
+          </button>
+          <button 
+            className={`nav-btn ${activeTab === 'saison' ? 'active' : ''}`}
+            onClick={() => setActiveTab('saison')}
+          >
+            <Sprout size={18} />
+            <span>Saison-Buster</span>
           </button>
         </nav>
       </header>
@@ -519,6 +835,14 @@ export default function App() {
                     >
                       <span className="dot" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-nestle)' }}></span>
                       Nestlé-Konzern ({activeFilters.nestle ? 'Aktiv' : 'Inaktiv'})
+                    </button>
+                    <button 
+                      type="button"
+                      className={`filter-toggle-btn anthroposophy ${activeFilters.anthroposophy ? 'active' : ''}`}
+                      onClick={() => handleFilterToggle('anthroposophy')}
+                    >
+                      <span className="dot" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-anthroposophy)' }}></span>
+                      Anthroposophie ({activeFilters.anthroposophy ? 'Aktiv' : 'Inaktiv'})
                     </button>
                   </div>
                 </div>
@@ -575,7 +899,7 @@ export default function App() {
                 {/* Manual Barcode Input */}
                 <div className="manual-input-box">
                   <label className="input-label">EAN-Barcode (13-stellige Zahl)</label>
-                  <form onSubmit={(e) => { e.preventDefault(); handleProductLookup(eanInput); }} className="input-group">
+                  <form onSubmit={(e) => { e.preventDefault(); handleProductLookup(eanInput); }} className="input-group" style={{ marginBottom: eanInput.length >= 3 ? '1rem' : '0' }}>
                     <input 
                       type="text" 
                       className="text-input" 
@@ -588,6 +912,51 @@ export default function App() {
                       Prüfen
                     </button>
                   </form>
+
+                  {(() => {
+                    const livePrefixMatch = eanInput.length >= 3 ? checkEANPrefix(eanInput) : null;
+                    if (!livePrefixMatch) return null;
+                    
+                    return (
+                      <div className={`ean-diagnostic-card ${livePrefixMatch.matchingCorp ? `match-${livePrefixMatch.matchingCorp}` : 'safe-prefix'} animate-slide-down`}>
+                        <div className="diag-header">
+                          <span className="diag-flag">{livePrefixMatch.flag}</span>
+                          <span className="diag-country">Registriert in <strong>{livePrefixMatch.country}</strong></span>
+                          <span className="diag-confidence-badge">{livePrefixMatch.matchingCorp ? 'Konzern-Muster erkannt' : 'Präfix unauffällig'}</span>
+                        </div>
+                        {livePrefixMatch.matchingCorp ? (
+                          <div className="diag-body">
+                            <div className="diag-warning-row">
+                              <AlertTriangle size={18} className="text-warning-icon" />
+                              <div className="diag-text-block">
+                                <strong>Verdacht auf: {livePrefixMatch.matchingBrandName}</strong>
+                                <p className="diag-warning-desc">
+                                  Dieses Barcode-Präfix ({livePrefixMatch.prefix}) deutet direkt auf Produkte der Gruppe <strong>{livePrefixMatch.matchingBrandName}</strong> hin.
+                                </p>
+                              </div>
+                            </div>
+                            
+                            {activeFilters[livePrefixMatch.matchingCorp] ? (
+                              <div className="diag-filter-status danger">
+                                <span className="dot danger-dot"></span>
+                                <strong>Boykott-Filter AKTIV!</strong> Dieses Produkt fällt unter deine aktiven Boykott-Richtlinien.
+                              </div>
+                            ) : (
+                              <div className="diag-filter-status info">
+                                <span className="dot info-dot"></span>
+                                <strong>Boykott-Filter Inaktiv.</strong> Die Marke wird boykottiert, aber der Filter ist aktuell ausgeschaltet.
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="diag-body safe">
+                            <CheckCircle size={16} className="text-success" />
+                            <span>Dieses EAN-Präfix ({livePrefixMatch.prefix}) ist in unserer Boykott-Datenbank nicht als Konzern-Muster registriert.</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -687,6 +1056,12 @@ export default function App() {
                         <div className="history-meta">
                           <div className="history-name">{item.name}</div>
                           <div className="history-code">{item.brand}</div>
+                          {item.loadedOffline && (
+                            <span className="source-badge offline-source">⚡ Offline-Treffer</span>
+                          )}
+                          {item.loadedFromCache && (
+                            <span className="source-badge cache-source">💾 Aus Cache</span>
+                          )}
                         </div>
                       </div>
                       
@@ -695,7 +1070,7 @@ export default function App() {
                         return (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span className={`indicator-pill ${itemStatus}`}>
-                              {itemStatus === 'hit' ? 'Müller' : itemStatus === 'hit-nestle' ? 'Nestlé' : itemStatus === 'free' ? 'Frei' : 'Unbekannt'}
+                              {itemStatus === 'hit' ? 'Müller' : itemStatus === 'hit-nestle' ? 'Nestlé' : itemStatus === 'hit-anthroposophy' ? 'Anthros.' : itemStatus === 'free' ? 'Frei' : 'Unbekannt'}
                             </span>
                             <button className="delete-btn" onClick={(e) => deleteHistoryItem(item.id, e)}>
                               <X size={14} />
@@ -729,7 +1104,9 @@ export default function App() {
                 Unternehmensgruppe Theo Müller (UTM)
               </h3>
               <div className="brand-showcase">
-                {Object.values(utmBrands).filter(brand => brand.corporation === 'muller').map((brand) => (
+                {Object.values(utmBrands)
+                  .filter((brand, idx, self) => brand.corporation === 'muller' && self.findIndex(b => b.id === brand.id) === idx)
+                  .map((brand) => (
                   <div key={brand.id} className="brand-card">
                     <div className="brand-card-header">
                       <div className="brand-card-name">{brand.name}</div>
@@ -747,11 +1124,33 @@ export default function App() {
                 Nestlé-Konzern
               </h3>
               <div className="brand-showcase">
-                {Object.values(utmBrands).filter(brand => brand.corporation === 'nestle').map((brand) => (
+                {Object.values(utmBrands)
+                  .filter((brand, idx, self) => brand.corporation === 'nestle' && self.findIndex(b => b.id === brand.id) === idx)
+                  .map((brand) => (
                   <div key={brand.id} className="brand-card nestle-brand">
                     <div className="brand-card-header">
                       <div className="brand-card-name">{brand.name}</div>
                       <span className="indicator-pill hit-nestle" style={{ fontSize: '0.65rem' }}>Nestlé</span>
+                    </div>
+                    <div className="brand-card-category">{brand.category}</div>
+                    <div className="brand-card-desc">{brand.description}</div>
+                    <div className="brand-card-relation">{brand.relation}</div>
+                  </div>
+                ))}
+              </div>
+
+              <h3 style={{ fontSize: '1.15rem', color: 'var(--color-anthroposophy)', borderBottom: '1px solid rgba(195, 142, 255, 0.2)', paddingBottom: '0.5rem', marginTop: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-anthroposophy)' }}></span>
+                Anthroposophie & Demeter
+              </h3>
+              <div className="brand-showcase">
+                {Object.values(utmBrands)
+                  .filter((brand, idx, self) => brand.corporation === 'anthroposophy' && self.findIndex(b => b.id === brand.id) === idx)
+                  .map((brand) => (
+                  <div key={brand.id} className="brand-card anthroposophy-brand">
+                    <div className="brand-card-header">
+                      <div className="brand-card-name">{brand.name}</div>
+                      <span className="indicator-pill hit-anthroposophy" style={{ fontSize: '0.65rem' }}>Anthros.</span>
                     </div>
                     <div className="brand-card-category">{brand.category}</div>
                     <div className="brand-card-desc">{brand.description}</div>
@@ -791,11 +1190,11 @@ export default function App() {
           <div className="glass-card" style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <h2 className="section-title">
               <BookOpen size={22} className="text-cyan" />
-              Hintergründe des Boykotts: Warum Müller & Nestlé meiden?
+              Hintergründe des Boykotts: Warum Müller, Nestlé & Anthroposophie meiden?
             </h2>
             
             <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, fontSize: '1rem' }}>
-              Die Kritik an Theo Müller und dem Nestlé-Konzern hat sich über Jahrzehnte aufgebaut. Sie speist sich aus politischen Kontroversen, Steuervermeidungstaktiken, Ausbeutung von Ressourcen und marktbeherrschendem Druck auf globale Systeme.
+              Die Kritik an Theo Müller, dem Nestlé-Konzern und anthroposophischen Großunternehmen hat sich über Jahrzehnte aufgebaut. Sie speist sich aus politischen Kontroversen, Steuervermeidungstaktiken, Ausbeutung von Ressourcen, unwissenschaftlichen Praktiken und marktbeherrschendem Druck auf globale Systeme.
             </p>
 
             <div className="controversy-list">
@@ -828,6 +1227,21 @@ export default function App() {
                   <p className="controversy-details">{reason.details}</p>
                 </div>
               ))}
+
+              <h3 style={{ fontSize: '1.25rem', color: 'var(--color-anthroposophy)', borderBottom: '1px solid rgba(195, 142, 255, 0.2)', paddingBottom: '0.5rem', marginTop: '2.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-anthroposophy)' }}></span>
+                Anthroposophie & Demeter Kontroversen
+              </h3>
+              {boycottReasons.filter(r => r.corporation === 'anthroposophy').map((reason, idx) => (
+                <div key={idx} className="controversy-item anthroposophy-controversy">
+                  <h4 className="controversy-title">
+                    <AlertTriangle size={18} style={{ color: 'var(--color-anthroposophy)' }} />
+                    {reason.title}
+                  </h4>
+                  <div className="controversy-summary">{reason.description}</div>
+                  <p className="controversy-details">{reason.details}</p>
+                </div>
+              ))}
             </div>
 
             <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '1.5rem', marginTop: '1rem' }}>
@@ -853,10 +1267,409 @@ export default function App() {
                     Der Spiegel: Berichte & Recherchen zum Nestlé-Konzern <ExternalLink size={12} />
                   </a>
                 </li>
+                <li>
+                  <a href="https://de.wikipedia.org/wiki/Anthroposophie#Kritik" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    Wikipedia: Kritik an der Anthroposophie (Esoterik & Rassenlehre Rudolf Steiners) <ExternalLink size={12} />
+                  </a>
+                </li>
+                <li>
+                  <a href="https://de.wikipedia.org/wiki/G%C3%B6tz_Werner#Anthroposophie" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    Wikipedia: Götz Werner und anthroposophische Führungsprinzipien bei dm <ExternalLink size={12} />
+                  </a>
+                </li>
               </ul>
             </div>
           </div>
         )}
+
+        {/* VIEW 4: MY SCORE DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div className="dashboard-grid">
+            
+            {/* Score circle card */}
+            <div className="glass-card score-main-card">
+              <h2 className="section-title">
+                <Trophy size={20} className="text-cyan animate-pulse" />
+                Dein Buster-Score
+              </h2>
+              
+              <div className="score-ring-container">
+                <div className="score-ring-wrapper">
+                  <svg width="180" height="180" viewBox="0 0 180 180" className="score-ring-svg">
+                    <circle
+                      className="score-ring-bg"
+                      cx="90"
+                      cy="90"
+                      r="72"
+                      strokeWidth="10"
+                      fill="transparent"
+                    />
+                    <circle
+                      className="score-ring-progress"
+                      cx="90"
+                      cy="90"
+                      r="72"
+                      strokeWidth="10"
+                      fill="transparent"
+                      strokeDasharray={2 * Math.PI * 72}
+                      strokeDashoffset={2 * Math.PI * 72 * (1 - stats.busterScore / 100)}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="score-center-text">
+                    <span className="score-number">{stats.busterScore}%</span>
+                    <span className="score-label">Reinheit</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="motivation-card">
+                <p className="motivation-quote">"{motivationText}"</p>
+              </div>
+            </div>
+
+            {/* Statistics Counters Grid */}
+            <div className="glass-card stats-counters-card">
+              <h2 className="section-title">
+                <Building2 size={20} className="text-cyan" />
+                Deine Einkaufs-Statistiken
+              </h2>
+              
+              <div className="stats-metric-grid">
+                <div className="metric-box muller-metric">
+                  <div className="metric-header">
+                    <span className="dot muller-dot"></span>
+                    <span>Müller</span>
+                  </div>
+                  <div className="metric-value">{stats.mullerHits}</div>
+                  <div className="metric-footer">Produkte entlarvt</div>
+                </div>
+
+                <div className="metric-box nestle-metric">
+                  <div className="metric-header">
+                    <span className="dot nestle-dot"></span>
+                    <span>Nestlé</span>
+                  </div>
+                  <div className="metric-value">{stats.nestleHits}</div>
+                  <div className="metric-footer">Produkte entlarvt</div>
+                </div>
+
+                <div className="metric-box anthro-metric">
+                  <div className="metric-header">
+                    <span className="dot anthro-dot"></span>
+                    <span>Anthroposophie</span>
+                  </div>
+                  <div className="metric-value">{stats.anthroHits}</div>
+                  <div className="metric-footer">Produkte entlarvt</div>
+                </div>
+
+                <div className="metric-box safe-metric">
+                  <div className="metric-header">
+                    <span className="dot safe-dot"></span>
+                    <span>Sauber</span>
+                  </div>
+                  <div className="metric-value">{stats.safeScans}</div>
+                  <div className="metric-footer">Produkte verifiziert</div>
+                </div>
+              </div>
+
+              <div className="total-metric-bar">
+                <span>Geprüfte Produkte (gesamt): <strong>{stats.totalValidScans}</strong></span>
+              </div>
+            </div>
+
+            {/* Achievements/Medaillen */}
+            <div className="glass-card achievements-card">
+              <h2 className="section-title">
+                <Award size={20} className="text-cyan" />
+                Freigeschaltete Abzeichen
+              </h2>
+              
+              <div className="badges-grid">
+                {achievements.map((badge) => {
+                  const IconComponent = badge.icon === 'Trophy' ? Trophy : Award;
+                  return (
+                    <div 
+                      key={badge.id} 
+                      className={`badge-item ${badge.unlocked ? 'unlocked' : 'locked'}`}
+                      style={{ '--badge-theme-color': badge.color } as React.CSSProperties}
+                    >
+                      <div className="badge-icon-container">
+                        <IconComponent size={24} className="badge-icon" />
+                        {!badge.unlocked && <div className="badge-lock">🔒</div>}
+                      </div>
+                      <div className="badge-info">
+                        <h3 className="badge-title">{badge.title}</h3>
+                        <p className="badge-description">{badge.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Recent Sins with Quick Alternatives */}
+            <div className="glass-card sins-card">
+              <h2 className="section-title">
+                <AlertTriangle size={20} className="text-danger" />
+                Deine Sünden (Boykottierte Produkte)
+              </h2>
+
+              {scanHistory.filter(item => {
+                const s = getDynamicStatus(item).status;
+                return s === 'hit' || s === 'hit-nestle' || s === 'hit-anthroposophy';
+              }).length === 0 ? (
+                <div className="empty-sins-state">
+                  <CheckCircle size={48} className="text-success animate-bounce" />
+                  <h3 style={{ color: 'var(--color-success)', fontSize: '1.2rem', fontWeight: 'bold' }}>Keine Sünden gefunden!</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'center', maxWidth: '350px' }}>
+                    Du hast in deiner aktuellen Scan-Historie keine problematischen Produkte gescannt. Hervorragend!
+                  </p>
+                </div>
+              ) : (
+                <div className="sins-list">
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                    Folgende Produkte in deinem Verlauf sind mit Warnungen versehen. Tippe auf ein Produkt, um Alternativen zu sehen:
+                  </p>
+                  {scanHistory.filter(item => {
+                    const s = getDynamicStatus(item).status;
+                    return s === 'hit' || s === 'hit-nestle' || s === 'hit-anthroposophy';
+                  }).map((item) => {
+                    const { status: itemStatus } = getDynamicStatus(item);
+                    return (
+                      <div 
+                        key={item.id} 
+                        className={`sin-item ${itemStatus}`}
+                        onClick={() => setActiveResult(item)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <div className="sin-left">
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt={item.name} className="product-img-sin" style={{ width: '40px', height: '40px', objectFit: 'contain', background: '#fff', borderRadius: '6px', padding: '2px' }} />
+                          ) : (
+                            <div className="product-no-img-sin" style={{ width: '40px', height: '40px', background: 'hsla(220, 10%, 40%, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', borderRadius: '6px' }}>
+                              <HelpCircle size={14} />
+                            </div>
+                          )}
+                          <div className="sin-meta" style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginLeft: '10px' }}>
+                            <span className="sin-name" style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{item.name}</span>
+                            <span className="sin-brand" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.brand}</span>
+                          </div>
+                        </div>
+                        <span className={`indicator-pill ${itemStatus}`}>
+                          {itemStatus === 'hit' ? 'Müller' : itemStatus === 'hit-nestle' ? 'Nestlé' : 'Anthros.'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* VIEW 5: SAISON-BUSTER REGIONAL CALENDAR */}
+        {activeTab === 'saison' && (() => {
+          const monthNames = [
+            "Januar", "Februar", "März", "April", "Mai", "Juni", 
+            "Juli", "August", "September", "Oktober", "November", "Dezember"
+          ];
+
+          // Compute seasonal list on the fly
+          const filteredSaisonItems = seasonalItems.filter(item => {
+            // Month match
+            if (!item.months.includes(selectedMonth)) return false;
+            
+            // Category filter
+            if (saisonCategoryFilter !== 'all' && item.category !== saisonCategoryFilter) return false;
+            
+            // Type filter
+            if (saisonTypeFilter !== 'all' && item.type !== saisonTypeFilter) return false;
+            
+            // Search query filter
+            if (saisonSearchQuery.trim() !== '') {
+              const q = saisonSearchQuery.toLowerCase();
+              if (!item.name.toLowerCase().includes(q) && !(item.tips && item.tips.toLowerCase().includes(q))) {
+                return false;
+              }
+            }
+            
+            return true;
+          });
+
+          return (
+            <div className="saison-container glass-card animate-slide-down">
+              <div className="saison-header">
+                <h2 className="section-title">
+                  <Sprout size={22} className="text-success animate-pulse" />
+                  Saison-Buster: Regionaler Einkaufshelfer
+                </h2>
+                <p className="saison-subtitle">
+                  Der ultimative Schutz vor Konzern-Monopolen: Kaufe frische, unverarbeitete und biologische Lebensmittel zur richtigen Jahreszeit direkt aus deiner Region.
+                </p>
+              </div>
+
+              {/* Sprout Antidote Explainer Box */}
+              <div className="saison-explainer">
+                <div className="explainer-icon-container">
+                  <Sparkles size={20} />
+                </div>
+                <div className="explainer-text">
+                  <strong>Das ultimative Antidot zu Müller & Nestlé</strong>
+                  <p>
+                    Indem du frisches, regionales Freilandgemüse, Kräuter und Obst direkt auf Bauernmärkten oder über Solawis (Solidarische Landwirtschaft) kaufst, meidest du industriell verarbeitete Produkte vollständig. Das entzieht den ausbeuterischen Lebensmittelkonzernen jegliche finanzielle Macht und schützt das Klima!
+                  </p>
+                </div>
+              </div>
+
+              {/* Month Selector Horizontal Slider */}
+              <div className="months-slider-container">
+                <div className="months-slider-header">
+                  <Calendar size={16} />
+                  <span>Monat auswählen:</span>
+                </div>
+                <div className="months-slider">
+                  {monthNames.map((name, index) => (
+                    <button
+                      key={index}
+                      className={`month-btn ${selectedMonth === index ? 'active' : ''}`}
+                      onClick={() => setSelectedMonth(index)}
+                    >
+                      <span className="month-number">{index + 1}</span>
+                      <span className="month-name">{name.substring(0, 3)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Filters panel */}
+              <div className="saison-filters">
+                <div className="search-box-saison">
+                  <Search size={16} />
+                  <input
+                    type="text"
+                    placeholder="Saisonale Produkte filtern (z.B. Bärlauch, Kürbis)..."
+                    value={saisonSearchQuery}
+                    onChange={(e) => setSaisonSearchQuery(e.target.value)}
+                    className="text-input"
+                  />
+                  {saisonSearchQuery && (
+                    <button className="clear-search-btn" onClick={() => setSaisonSearchQuery('')}>
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="filter-row-saison">
+                  <div className="filter-group-saison">
+                    <span className="filter-group-label">Kategorie:</span>
+                    <div className="filter-buttons">
+                      <button 
+                        className={`filter-btn ${saisonCategoryFilter === 'all' ? 'active' : ''}`}
+                        onClick={() => setSaisonCategoryFilter('all')}
+                      >
+                        Alle
+                      </button>
+                      <button 
+                        className={`filter-btn ${saisonCategoryFilter === 'vegetable' ? 'active' : ''}`}
+                        onClick={() => setSaisonCategoryFilter('vegetable')}
+                      >
+                        Gemüse
+                      </button>
+                      <button 
+                        className={`filter-btn ${saisonCategoryFilter === 'fruit' ? 'active' : ''}`}
+                        onClick={() => setSaisonCategoryFilter('fruit')}
+                      >
+                        Obst
+                      </button>
+                      <button 
+                        className={`filter-btn ${saisonCategoryFilter === 'herb' ? 'active' : ''}`}
+                        onClick={() => setSaisonCategoryFilter('herb')}
+                      >
+                        Kräuter
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="filter-group-saison">
+                    <span className="filter-group-label">Anbau:</span>
+                    <div className="filter-buttons">
+                      <button 
+                        className={`filter-btn ${saisonTypeFilter === 'all' ? 'active' : ''}`}
+                        onClick={() => setSaisonTypeFilter('all')}
+                      >
+                        Alle
+                      </button>
+                      <button 
+                        className={`filter-btn ${saisonTypeFilter === 'freiland' ? 'active' : ''}`}
+                        onClick={() => setSaisonTypeFilter('freiland')}
+                      >
+                        Freiland
+                      </button>
+                      <button 
+                        className={`filter-btn ${saisonTypeFilter === 'lager' ? 'active' : ''}`}
+                        onClick={() => setSaisonTypeFilter('lager')}
+                      >
+                        Lagerware
+                      </button>
+                      <button 
+                        className={`filter-btn ${saisonTypeFilter === 'geschuetzt' ? 'active' : ''}`}
+                        onClick={() => setSaisonTypeFilter('geschuetzt')}
+                      >
+                        Gewächshaus
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid of seasonal cards */}
+              <div className="seasonal-grid-header">
+                <h3>Saison-Ergebnisse für {monthNames[selectedMonth]} ({filteredSaisonItems.length})</h3>
+              </div>
+              
+              <div className="seasonal-grid">
+                {filteredSaisonItems.length === 0 ? (
+                  <div className="empty-seasonal">
+                    <Info size={40} className="text-muted" />
+                    <p>Keine regionalen Produkte für diesen Monat und diese Filterkriterien gefunden.</p>
+                    <button className="btn btn-secondary" onClick={() => {
+                      setSaisonSearchQuery('');
+                      setSaisonCategoryFilter('all');
+                      setSaisonTypeFilter('all');
+                    }} style={{ marginTop: '1rem' }}>
+                      Filter zurücksetzen
+                    </button>
+                  </div>
+                ) : (
+                  filteredSaisonItems.map((item) => (
+                    <div key={item.id} className={`seasonal-card ${item.type}-glow`}>
+                      <div className="seasonal-card-header">
+                        <div className="seasonal-name">{item.name}</div>
+                        <span className={`seasonal-cat-badge ${item.category}`}>
+                          {item.category === 'vegetable' ? 'Gemüse' : item.category === 'fruit' ? 'Obst' : 'Kräuter'}
+                        </span>
+                      </div>
+                      
+                      <div className="seasonal-type-row">
+                        <span className={`seasonal-type-tag ${item.type}`}>
+                          {item.type === 'freiland' ? '☀️ Frisches Freiland' : item.type === 'lager' ? '🍂 Regionale Lagerware' : '🌿 Geschützter Anbau'}
+                        </span>
+                      </div>
+
+                      {item.tips && (
+                        <p className="seasonal-tips">
+                          <strong>Tipp:</strong> {item.tips}
+                        </p>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </main>
 
       {/* OVERLAY MODAL: DETAIL RESULT DISPLAY */}
@@ -876,15 +1689,15 @@ export default function App() {
                 </button>
 
                 <div className="result-icon-glow">
-                  {currentStatus === 'hit' || currentStatus === 'hit-nestle' ? <AlertTriangle size={28} /> : currentStatus === 'free' ? <CheckCircle size={28} /> : <HelpCircle size={28} />}
+                  {currentStatus === 'hit' || currentStatus === 'hit-nestle' || currentStatus === 'hit-anthroposophy' ? <AlertTriangle size={28} /> : currentStatus === 'free' ? <CheckCircle size={28} /> : <HelpCircle size={28} />}
                 </div>
 
                 <div className="result-title">
-                  {currentStatus === 'hit' ? 'Achtung: Müller-Gruppe!' : currentStatus === 'hit-nestle' ? 'Achtung: Nestlé-Konzern!' : currentStatus === 'free' ? 'Super: Müller/Nestlé-Frei!' : 'Unbekanntes Produkt'}
+                  {currentStatus === 'hit' ? 'Achtung: Müller-Gruppe!' : currentStatus === 'hit-nestle' ? 'Achtung: Nestlé-Konzern!' : currentStatus === 'hit-anthroposophy' ? 'Achtung: Anthroposophie!' : currentStatus === 'free' ? 'Super: Boykott-Frei!' : 'Unbekanntes Produkt'}
                 </div>
 
                 <div className="result-subtitle">
-                  {currentStatus === 'hit' ? 'Dieses Produkt steht in Verbindung zu Theo Müller.' : currentStatus === 'hit-nestle' ? 'Dieses Produkt gehört zum Nestlé-Konzern.' : currentStatus === 'free' ? 'Keine Verbindung zu Müller oder Nestlé gefunden.' : 'Prüfung unvollständig.'}
+                  {currentStatus === 'hit' ? 'Dieses Produkt steht in Verbindung zu Theo Müller.' : currentStatus === 'hit-nestle' ? 'Dieses Produkt gehört zum Nestlé-Konzern.' : currentStatus === 'hit-anthroposophy' ? 'Dieses Produkt steht in Verbindung zur Anthroposophie.' : currentStatus === 'free' ? 'Keine Verbindung zu Müller, Nestlé oder Anthroposophie gefunden.' : 'Prüfung unvollständig.'}
                 </div>
               </div>
 
@@ -903,12 +1716,20 @@ export default function App() {
                   <div className="product-meta">
                     <div className="product-name">{activeResult.name}</div>
                     <div className="product-brand">{activeResult.brand}</div>
-                    <div className="product-barcode">EAN: {activeResult.barcode}</div>
+                    <div className="product-barcode" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                      <span>EAN: {activeResult.barcode}</span>
+                      {activeResult.loadedOffline && (
+                        <span className="source-badge offline-source-large">⚡ Offline-Treffer (Sofort-Prüfung)</span>
+                      )}
+                      {activeResult.loadedFromCache && (
+                        <span className="source-badge cache-source-large">💾 Aus Cache geladen</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Match Details / Explanation */}
-                {(currentStatus === 'hit' || currentStatus === 'hit-nestle') && (
+                {(currentStatus === 'hit' || currentStatus === 'hit-nestle' || currentStatus === 'hit-anthroposophy') && (
                   <div className={`trigger-match-box ${currentStatus}`}>
                     <div className="trigger-title">
                       <AlertTriangle size={16} />
@@ -927,7 +1748,7 @@ export default function App() {
                       Unbedenklich
                     </div>
                     <p className="safe-text">
-                      Nach unseren Datenbank-Einträgen gehört weder die Marke noch das herstellende Werk zum Konzernumfeld der aktiven Boykott-Filter (Müller / Nestlé). Du kannst dieses Produkt beruhigt einkaufen!
+                      Nach unseren Datenbank-Einträgen gehört weder die Marke noch das herstellende Werk zum Konzernumfeld der aktiven Boykott-Filter (Müller / Nestlé / Anthroposophie). Du kannst dieses Produkt beruhigt einkaufen!
                     </p>
                   </div>
                 )}
@@ -951,7 +1772,7 @@ export default function App() {
                 )}
 
                 {/* Alternatives grid (for hits only) */}
-                {(currentStatus === 'hit' || currentStatus === 'hit-nestle') && (
+                {(currentStatus === 'hit' || currentStatus === 'hit-nestle' || currentStatus === 'hit-anthroposophy') && (
                   <div className="alternatives-container">
                     <h4 className="alt-title">
                       <Sparkles size={16} className="text-cyan" />
